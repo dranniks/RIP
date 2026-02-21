@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>XRF Services</title>
+  <title>ArchaeoXRF Atlas</title>
   <link rel="stylesheet" href="/styles/styles.css">
 </head>
 <body>
@@ -11,70 +11,42 @@
     <a class="home-link" href="/services" aria-label="Домой">
       <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
     </a>
+    <p class="site-name">ArchaeoXRF Atlas: XRF анализ по частотам и интенсивности.</p>
   </header>
 
   <main class="page">
-    <h1 class="page-title">Базы эталонных сплавов для XRF</h1>
-    <p class="page-subtitle">Определение состава сплава по частотам и интенсивности рентгенофлуоресцентного анализа.</p>
-
     <section class="list-actions">
       <form class="search-card" method="get" action="/services">
         <label class="search-label" for="q">Поиск услуги (наименование, цена, эпоха)</label>
-        <input id="q" class="search-input" type="text" name="q" value="" placeholder="Например: латунь">
+        <input id="q" class="search-input" type="text" name="q" value="{{ .Query }}" placeholder="Например: латунь">
       </form>
 
-      <a class="cart-link" href="/claims/claim-001" title="Текущая заявка">
+      <a class="cart-link" href="/claims/{{ .Claim.ID }}" title="Текущая заявка">
         <svg viewBox="0 0 24 24"><path d="M7 18c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zM7.2 14h9.4c.8 0 1.5-.4 1.8-1.1L21.7 7c.4-.7-.1-1.5-.9-1.5H6.2L5.3 3H2v2h2l3.6 7.6-1.4 2.5c-.7 1.2.2 2.9 1.7 2.9H20v-2H8l1.2-2z"/></svg>
-        <span>Заявка claim-001</span>
-        <strong>3 услуги</strong>
+        <span>Артефакт №001</span>
+        <strong>{{ .ClaimServiceCount }} услуги</strong>
       </a>
     </section>
 
     <section class="services-grid">
-      <a class="service-card" href="/services/alloy-bronze-cyprus">
-        <img class="service-thumb" src="https://images.unsplash.com/photo-1618397746666-63405ce5d015?auto=format&fit=crop&w=1200&q=80" alt="Бронза Кипр">
+      {{ range .Services }}
+      <a class="service-card" href="/services/{{ .ID }}">
+        <img class="service-thumb" src="{{ .ImageURL }}" alt="{{ .Name }}">
         <div class="service-body">
-          <h2 class="service-name">Бронза Кипра</h2>
-          <p class="service-row">Эпоха: поздняя бронза</p>
-          <p class="service-row">Стоимость: 5 200 ₽</p>
+          <h2 class="service-name">{{ .Name }}</h2>
+          <p class="service-row">Эпоха: {{ .Era }}</p>
+          <p class="service-row">Стоимость: {{ .PriceRUB }} ₽</p>
           <div class="chips">
-            <span class="chip">6.40:0.16</span>
-            <span class="chip">8.04:0.83</span>
-            <span class="chip">8.64:0.04</span>
-            <span class="chip">10.55:0.12</span>
+            <span class="chip">{{ .FeKAlpha }}</span>
+            <span class="chip">{{ .CuKAlpha }}</span>
+            <span class="chip">{{ .ZnKAlpha }}</span>
+            <span class="chip">{{ .PbLAlpha }}</span>
           </div>
         </div>
       </a>
-
-      <a class="service-card" href="/services/alloy-brass-rome">
-        <img class="service-thumb" src="https://images.unsplash.com/photo-1518991791750-749091947767?auto=format&fit=crop&w=1200&q=80" alt="Латунь Рим">
-        <div class="service-body">
-          <h2 class="service-name">Латунь Рима</h2>
-          <p class="service-row">Эпоха: I-III вв. н.э.</p>
-          <p class="service-row">Стоимость: 4 900 ₽</p>
-          <div class="chips">
-            <span class="chip">6.40:0.08</span>
-            <span class="chip">8.04:0.78</span>
-            <span class="chip">8.64:0.64</span>
-            <span class="chip">10.55:0.03</span>
-          </div>
-        </div>
-      </a>
-
-      <a class="service-card" href="/services/alloy-iron-north">
-        <img class="service-thumb" src="https://images.unsplash.com/photo-1532330384785-8bb8ce1c2148?auto=format&fit=crop&w=1200&q=80" alt="Железный сплав Север">
-        <div class="service-body">
-          <h2 class="service-name">Железный сплав Севера</h2>
-          <p class="service-row">Эпоха: VIII-XI вв.</p>
-          <p class="service-row">Стоимость: 5 800 ₽</p>
-          <div class="chips">
-            <span class="chip">6.40:0.73</span>
-            <span class="chip">8.04:0.14</span>
-            <span class="chip">8.64:0.02</span>
-            <span class="chip">10.55:0.01</span>
-          </div>
-        </div>
-      </a>
+      {{ else }}
+      <article class="card">По вашему запросу ничего не найдено.</article>
+      {{ end }}
     </section>
   </main>
 </body>

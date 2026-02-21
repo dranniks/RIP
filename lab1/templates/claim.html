@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Заявка claim-001</title>
+  <title>Заявка {{ .Claim.ID }}</title>
   <link rel="stylesheet" href="/styles/styles.css">
 </head>
 <body>
@@ -11,22 +11,23 @@
     <a class="home-link" href="/services" aria-label="Домой">
       <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
     </a>
+    <p class="site-name">ArchaeoXRF Atlas: XRF анализ по частотам и интенсивности.</p>
   </header>
 
   <main class="page">
-    <h1 class="page-title">Заявка claim-001</h1>
+    <h1 class="page-title">Заявка {{ .Claim.ID }}</h1>
     <p class="page-subtitle">Расчет процентного содержания элементов и идентификация артефакта с эталонным сплавом.</p>
 
     <section class="card claim-head">
-      <div class="id-text">ID заявки: <strong>claim-001</strong></div>
-      <form class="claim-form" method="get" action="/claims/claim-001">
+      <div class="id-text">ID заявки: <strong>{{ .Claim.ID }}</strong></div>
+      <form class="claim-form" method="get" action="/claims/{{ .Claim.ID }}">
         <div class="field">
           <label for="artifact">Описание артефакта</label>
-          <textarea id="artifact" name="artifact" rows="3" placeholder="Например: фибула, место находки, эпоха"></textarea>
+          <textarea id="artifact" name="artifact" rows="3" placeholder="Например: фибула, место находки, эпоха">{{ .Claim.ArtifactTitle }}</textarea>
         </div>
 
         <div class="freq-block">
-          <h3>Интенсивности (тот же список частот)</h3>
+          <h3>Интенсивности</h3>
           <div class="freq-grid">
             <label>6.40 keV<input type="text" name="i640" placeholder="0.09"></label>
             <label>8.04 keV<input type="text" name="i804" placeholder="0.80"></label>
@@ -37,7 +38,7 @@
 
         <div class="field">
           <label for="mm">Экспертный комментарий</label>
-          <textarea id="mm" name="mm" rows="2" placeholder="Комментарий оператора по расчету"></textarea>
+          <textarea id="mm" name="mm" rows="2" placeholder="Комментарий оператора по расчету">{{ .Claim.OperatorComment }}</textarea>
         </div>
       </form>
     </section>
@@ -51,38 +52,18 @@
         <div>Результат расчета состава</div>
       </div>
 
+      {{ range .Rows }}
       <article class="claim-row">
-        <img class="claim-thumb" src="https://images.unsplash.com/photo-1618397746666-63405ce5d015?auto=format&fit=crop&w=600&q=80" alt="Бронза Кипра">
+        <img class="claim-thumb" src="{{ .Service.ImageURL }}" alt="{{ .Service.Name }}">
         <div>
-          <div>alloy-bronze-cyprus / Бронза Кипра</div>
-          <div class="small">6.40:0.16 | 8.04:0.83 | 8.64:0.04 | 10.55:0.12</div>
+          <div>{{ .Service.ID }} / {{ .Service.Name }}</div>
+          <div class="small">{{ .Service.FeKAlpha }} | {{ .Service.CuKAlpha }} | {{ .Service.ZnKAlpha }} | {{ .Service.PbLAlpha }}</div>
         </div>
-        <div class="small">Референсный профиль для сравнения с артефактом</div>
-        <div class="mm-box">Комментарий: высокая близость по Cu и Pb.</div>
-        <div class="mm-box">Содержание сплава: Cu 88%, Sn 10%, Pb 2%</div>
+        <div class="small">{{ .Service.Description }}</div>
+        <div class="mm-box">{{ .MMField }}</div>
+        <div class="mm-box">{{ .CalculationResult }}</div>
       </article>
-
-      <article class="claim-row">
-        <img class="claim-thumb" src="https://images.unsplash.com/photo-1518991791750-749091947767?auto=format&fit=crop&w=600&q=80" alt="Латунь Рима">
-        <div>
-          <div>alloy-brass-rome / Латунь Рима</div>
-          <div class="small">6.40:0.08 | 8.04:0.78 | 8.64:0.64 | 10.55:0.03</div>
-        </div>
-        <div class="small">Эталон для римских латуней I-III вв.</div>
-        <div class="mm-box">Комментарий: лучшее совпадение по Zn.</div>
-        <div class="mm-box">Содержание сплава: Cu 79%, Zn 19%, Pb 2%</div>
-      </article>
-
-      <article class="claim-row">
-        <img class="claim-thumb" src="https://images.unsplash.com/photo-1532330384785-8bb8ce1c2148?auto=format&fit=crop&w=600&q=80" alt="Железный сплав Севера">
-        <div>
-          <div>alloy-iron-north / Железный сплав Севера</div>
-          <div class="small">6.40:0.73 | 8.04:0.14 | 8.64:0.02 | 10.55:0.01</div>
-        </div>
-        <div class="small">Контрольная услуга с низкой похожестью</div>
-        <div class="mm-box">Комментарий: использовать как отрицательный контроль.</div>
-        <div class="mm-box">Содержание сплава: Fe 92%, Cu 5%, примеси 3%</div>
-      </article>
+      {{ end }}
     </section>
   </main>
 </body>
