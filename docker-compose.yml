@@ -1,0 +1,42 @@
+﻿services:
+  db:
+    image: postgres:16
+    container_name: rip-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: RIP
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgresdb-data:/var/lib/postgresql/data
+
+  adminer:
+    image: adminer:4.8.1
+    container_name: rip-adminer
+    restart: unless-stopped
+    depends_on:
+      - db
+    ports:
+      - "8081:8080"
+
+
+  minio:
+    image: minio/minio:latest
+    container_name: rip-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: root
+      MINIO_ROOT_PASSWORD: rootroot
+      MINIO_CONSOLE_ADDRESS: ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    command: server /data
+
+volumes:
+  postgresdb-data:
+  minio-data:

@@ -1,0 +1,5 @@
+﻿.gocache/
+.gomodcache/
+gocache/
+gomodcache/
+lab2/.env

@@ -1,0 +1,6 @@
+2026/02/21 18:15:35 Application start!
+2026/02/21 18:15:35 server start up
+[GIN-debug] [ERROR] listen tcp :8080: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted.
+2026/02/21 18:15:35 server stopped with error: listen tcp :8080: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted.
+2026/02/21 18:15:35 server down
+2026/02/21 18:15:35 Application terminated!
