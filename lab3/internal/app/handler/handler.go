@@ -3,276 +3,577 @@ package handler
 import (
 	"errors"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"xrfApp/internal/app/model"
+	"xrfApp/internal/app/identity"
 	"xrfApp/internal/app/repository"
 )
-
-const currentUserID uint = 1
 
 type Handler struct {
 	Repository *repository.Repository
 }
 
 func NewHandler(r *repository.Repository) *Handler {
-	return &Handler{
-		Repository: r,
-	}
+	return &Handler{Repository: r}
 }
 
-func (h *Handler) GetServices(ctx *gin.Context) {
-	searchQuery := strings.TrimSpace(ctx.Query("q"))
-
-	services, err := h.Repository.SearchServices(searchQuery)
+func (h *Handler) GetServicesAPI(ctx *gin.Context) {
+	services, err := h.Repository.ListServices(repository.ServiceFilters{
+		Query: ctx.Query("q"),
+	})
 	if err != nil {
-		ctx.String(http.StatusInternalServerError, "cannot load services: %v", err)
+		h.handleRepoError(ctx, err)
 		return
 	}
 
-	draft, err := h.Repository.GetDraftCard(currentUserID)
-	if err != nil {
-		ctx.String(http.StatusInternalServerError, "cannot load draft card: %v", err)
-		return
+	result := make([]serviceSerializer, 0, len(services))
+	for _, service := range services {
+		result = append(result, toServiceSerializer(service))
 	}
 
-	ctx.HTML(http.StatusOK, "index.html", gin.H{
-		"Services": services,
-		"Draft":    draft,
-		"Query":    searchQuery,
-		"Added":    ctx.Query("added") == "1",
-		"Deleted":  ctx.Query("deleted") == "1",
+	ctx.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"data":   result,
 	})
 }
 
-func (h *Handler) GetService(ctx *gin.Context) {
-	serviceSlug := strings.TrimSpace(ctx.Param("slug"))
-	service, err := h.Repository.GetServiceBySlug(serviceSlug)
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		ctx.String(http.StatusNotFound, "service not found")
-		return
-	}
+func (h *Handler) GetServiceAPI(ctx *gin.Context) {
+	serviceID, err := parseUintParam(ctx.Param("id"))
 	if err != nil {
-		ctx.String(http.StatusInternalServerError, "cannot load service: %v", err)
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid service id"})
 		return
 	}
 
-	draft, err := h.Repository.GetDraftCard(currentUserID)
+	service, err := h.Repository.GetServiceByID(serviceID)
 	if err != nil {
-		ctx.String(http.StatusInternalServerError, "cannot load draft card: %v", err)
+		h.handleRepoError(ctx, err)
 		return
 	}
 
-	ctx.HTML(http.StatusOK, "service.html", gin.H{
-		"Service": service,
-		"Draft":   draft,
+	ctx.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"data":   toServiceSerializer(service),
 	})
 }
 
-func (h *Handler) GetClaim(ctx *gin.Context) {
-	claimCode := strings.TrimSpace(ctx.Param("code"))
-
-	action := strings.TrimSpace(ctx.Query("action"))
-	if action != "" {
-		updates, parseErr := parseClaimUpdatePayload(ctx)
-		if parseErr != nil {
-			ctx.String(http.StatusBadRequest, "invalid claim input: %v", parseErr)
-			return
-		}
-
-		if updateErr := h.Repository.UpdateClaimInputData(currentUserID, claimCode, updates); updateErr != nil {
-			if errors.Is(updateErr, gorm.ErrRecordNotFound) {
-				ctx.String(http.StatusNotFound, "claim not found")
-				return
-			}
-			ctx.String(http.StatusInternalServerError, "cannot update claim: %v", updateErr)
-			return
-		}
-
-		if action == "submit" {
-			if submitErr := h.Repository.SubmitDraftClaimORM(currentUserID, claimCode); submitErr != nil {
-				if errors.Is(submitErr, gorm.ErrRecordNotFound) {
-					ctx.String(http.StatusNotFound, "draft claim not found")
-					return
-				}
-				ctx.String(http.StatusInternalServerError, "cannot submit claim: %v", submitErr)
-				return
-			}
-
-			ctx.Redirect(http.StatusFound, "/claims/"+claimCode+"?submitted=1")
-			return
-		}
-
-		ctx.Redirect(http.StatusFound, "/claims/"+claimCode+"?calculated=1")
+func (h *Handler) CreateServiceAPI(ctx *gin.Context) {
+	if err := ctx.Request.ParseMultipartForm(128 << 20); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "multipart form is invalid"})
 		return
 	}
 
-	details, err := h.Repository.GetClaimByCode(currentUserID, claimCode)
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		ctx.String(http.StatusNotFound, "claim not found")
-		return
-	}
+	unitPrice, err := parseRequiredFloat(ctx.PostForm("unit_price"), "unit_price")
 	if err != nil {
-		ctx.String(http.StatusInternalServerError, "cannot load claim: %v", err)
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": err.Error()})
+		return
+	}
+	cuRef, err := parseRequiredFloat(ctx.PostForm("cu_reference"), "cu_reference")
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": err.Error()})
+		return
+	}
+	znRef, err := parseRequiredFloat(ctx.PostForm("zn_reference"), "zn_reference")
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": err.Error()})
+		return
+	}
+	snRef, err := parseRequiredFloat(ctx.PostForm("sn_reference"), "sn_reference")
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": err.Error()})
+		return
+	}
+	pbRef, err := parseRequiredFloat(ctx.PostForm("pb_reference"), "pb_reference")
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": err.Error()})
 		return
 	}
 
-	ctx.HTML(http.StatusOK, "claim.html", gin.H{
-		"Claim":         details.Claim,
-		"Rows":          details.Rows,
-		"TotalServices": details.TotalServices,
-		"Formula":       details.Formula,
-		"CanDelete":     details.Claim.Status == model.ClaimStatusDraft,
-		"Calculated":    ctx.Query("calculated") == "1",
-		"Submitted":     ctx.Query("submitted") == "1",
-		"Input":         mapClaimInputValues(details.Claim),
+	var imageFileName *string
+	var imageURL *string
+	if header, fileErr := readOptionalFile(ctx, "image"); fileErr == nil && header != nil {
+		name, url, uploadErr := h.uploadMultipartMedia(ctx, header, "image")
+		if uploadErr != nil {
+			h.handleRepoError(ctx, uploadErr)
+			return
+		}
+		imageFileName = &name
+		imageURL = &url
+	} else if fileErr != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": fileErr.Error()})
+		return
+	}
+
+	var videoFileName *string
+	var videoURL *string
+	if header, fileErr := readOptionalFile(ctx, "video"); fileErr == nil && header != nil {
+		name, url, uploadErr := h.uploadMultipartMedia(ctx, header, "video")
+		if uploadErr != nil {
+			h.handleRepoError(ctx, uploadErr)
+			return
+		}
+		videoFileName = &name
+		videoURL = &url
+	} else if fileErr != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": fileErr.Error()})
+		return
+	}
+
+	service, err := h.Repository.CreateService(repository.ServiceCreateInput{
+		Name:          strings.TrimSpace(ctx.PostForm("name")),
+		Description:   strings.TrimSpace(ctx.PostForm("description")),
+		Era:           strings.TrimSpace(ctx.PostForm("era")),
+		Culture:       strings.TrimSpace(ctx.PostForm("culture")),
+		UnitPrice:     unitPrice,
+		CuReference:   cuRef,
+		ZnReference:   znRef,
+		SnReference:   snRef,
+		PbReference:   pbRef,
+		ImageFileName: imageFileName,
+		VideoFileName: videoFileName,
+		ImageURL:      imageURL,
+		VideoURL:      videoURL,
+	})
+	if err != nil {
+		h.handleRepoError(ctx, err)
+		return
+	}
+
+	ctx.JSON(http.StatusCreated, gin.H{
+		"status":  "success",
+		"message": "service created",
+		"data":    toServiceSerializer(*service),
 	})
 }
 
-func (h *Handler) AddServiceToDraft(ctx *gin.Context) {
-	serviceSlug := strings.TrimSpace(ctx.PostForm("service_slug"))
-	if serviceSlug == "" {
-		ctx.String(http.StatusBadRequest, "service slug is required")
+func (h *Handler) AddServiceToDraftAPI(ctx *gin.Context) {
+	body := struct {
+		ServiceID uint `json:"service_id"`
+	}{}
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid JSON body"})
+		return
+	}
+	if body.ServiceID == 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "service_id is required"})
 		return
 	}
 
-	_, err := h.Repository.AddServiceToDraft(currentUserID, serviceSlug)
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		ctx.String(http.StatusNotFound, "service not found")
-		return
-	}
+	claim, match, err := h.Repository.AddServiceToDraft(creatorID(), body.ServiceID)
 	if err != nil {
-		ctx.String(http.StatusInternalServerError, "cannot add service to draft: %v", err)
+		h.handleRepoError(ctx, err)
 		return
 	}
 
-	redirectURL := strings.TrimSpace(ctx.PostForm("redirect_to"))
-	if redirectURL == "" {
-		redirectURL = "/services?added=1"
-	}
-	ctx.Redirect(http.StatusFound, redirectURL)
+	ctx.JSON(http.StatusCreated, gin.H{
+		"status": "success",
+		"data": gin.H{
+			"claim_id":   claim.ID,
+			"claim_code": claim.ClaimCode,
+			"service_id": match.ServiceID,
+			"quantity":   match.Quantity,
+			"sort_order": match.SortOrder,
+		},
+	})
 }
 
-func (h *Handler) DeleteDraftClaim(ctx *gin.Context) {
-	claimCode := strings.TrimSpace(ctx.Param("code"))
-	if claimCode == "" {
-		ctx.String(http.StatusBadRequest, "claim code is required")
-		return
-	}
-
-	err := h.Repository.SoftDeleteDraftClaimSQL(currentUserID, claimCode)
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		ctx.String(http.StatusNotFound, "draft claim not found")
-		return
-	}
+func (h *Handler) UpdateDraftMatchAPI(ctx *gin.Context) {
+	serviceID, err := parseUintParam(ctx.Param("service_id"))
 	if err != nil {
-		ctx.String(http.StatusInternalServerError, "cannot delete claim: %v", err)
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid service id"})
 		return
 	}
 
-	ctx.Redirect(http.StatusFound, "/services?deleted=1")
-}
-
-func parseClaimUpdatePayload(ctx *gin.Context) (map[string]any, error) {
-	updates := make(map[string]any)
-
-	setNullableStringQuery(ctx, "artifact", "artifact_title", updates)
-	setNullableStringQuery(ctx, "origin", "artifact_origin", updates)
-	setNullableStringQuery(ctx, "analyzer", "analyzer_model", updates)
-	setNullableStringQuery(ctx, "mm", "operator_comment", updates)
-
-	if raw, ok := ctx.GetQuery("icu"); ok {
-		value, err := parseNullableFloat(raw)
-		if err != nil {
-			return nil, fmt.Errorf("icu: %w", err)
-		}
-		updates["cu_measured"] = value
-	}
-	if raw, ok := ctx.GetQuery("izn"); ok {
-		value, err := parseNullableFloat(raw)
-		if err != nil {
-			return nil, fmt.Errorf("izn: %w", err)
-		}
-		updates["zn_measured"] = value
-	}
-	if raw, ok := ctx.GetQuery("isn"); ok {
-		value, err := parseNullableFloat(raw)
-		if err != nil {
-			return nil, fmt.Errorf("isn: %w", err)
-		}
-		updates["sn_measured"] = value
-	}
-	if raw, ok := ctx.GetQuery("ipb"); ok {
-		value, err := parseNullableFloat(raw)
-		if err != nil {
-			return nil, fmt.Errorf("ipb: %w", err)
-		}
-		updates["pb_measured"] = value
-	}
-
-	return updates, nil
-}
-
-func setNullableStringQuery(ctx *gin.Context, queryKey, dbKey string, updates map[string]any) {
-	raw, ok := ctx.GetQuery(queryKey)
-	if !ok {
+	body := struct {
+		Quantity   *int     `json:"quantity"`
+		SortOrder  *int     `json:"sort_order"`
+		MatchValue *float64 `json:"match_value"`
+	}{}
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid JSON body"})
 		return
 	}
 
-	value := strings.TrimSpace(raw)
-	if value == "" {
-		updates[dbKey] = nil
+	match, err := h.Repository.UpdateDraftMatch(creatorID(), serviceID, repository.MatchUpdateInput{
+		Quantity:   body.Quantity,
+		SortOrder:  body.SortOrder,
+		MatchValue: body.MatchValue,
+	})
+	if err != nil {
+		h.handleRepoError(ctx, err)
 		return
 	}
-	updates[dbKey] = value
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"data": gin.H{
+			"id":          match.ID,
+			"claim_id":    match.ClaimID,
+			"service_id":  match.ServiceID,
+			"quantity":    match.Quantity,
+			"sort_order":  match.SortOrder,
+			"match_value": match.MatchValue,
+		},
+	})
 }
 
-func parseNullableFloat(raw string) (any, error) {
+func (h *Handler) DeleteDraftMatchAPI(ctx *gin.Context) {
+	serviceID, err := parseUintParam(ctx.Param("service_id"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid service id"})
+		return
+	}
+
+	if err := h.Repository.DeleteDraftMatch(creatorID(), serviceID); err != nil {
+		h.handleRepoError(ctx, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"status":  "success",
+		"message": "service removed from draft claim",
+	})
+}
+
+func (h *Handler) GetCartIconAPI(ctx *gin.Context) {
+	card, err := h.Repository.GetCartIcon(creatorID())
+	if err != nil {
+		h.handleRepoError(ctx, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"data":   toCartSerializer(card),
+	})
+}
+
+func (h *Handler) GetClaimsAPI(ctx *gin.Context) {
+	filters, err := parseClaimFilters(ctx)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": err.Error()})
+		return
+	}
+
+	claims, err := h.Repository.ListClaims(filters)
+	if err != nil {
+		h.handleRepoError(ctx, err)
+		return
+	}
+
+	result := make([]claimListSerializer, 0, len(claims))
+	for _, item := range claims {
+		result = append(result, toClaimListSerializer(item))
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"data":   result,
+	})
+}
+
+func (h *Handler) GetClaimAPI(ctx *gin.Context) {
+	claimID, err := parseUintParam(ctx.Param("id"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid claim id"})
+		return
+	}
+
+	details, err := h.Repository.GetClaimDetails(claimID)
+	if err != nil {
+		h.handleRepoError(ctx, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"data":   toClaimSerializer(details),
+	})
+}
+
+func (h *Handler) UpdateDraftClaimAPI(ctx *gin.Context) {
+	claimID, err := parseUintParam(ctx.Param("id"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid claim id"})
+		return
+	}
+
+	body := struct {
+		ArtifactTitle   *string  `json:"artifact_title"`
+		ArtifactOrigin  *string  `json:"artifact_origin"`
+		AnalyzerModel   *string  `json:"analyzer_model"`
+		OperatorComment *string  `json:"operator_comment"`
+		CuMeasured      *float64 `json:"cu_measured"`
+		ZnMeasured      *float64 `json:"zn_measured"`
+		SnMeasured      *float64 `json:"sn_measured"`
+		PbMeasured      *float64 `json:"pb_measured"`
+	}{}
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid JSON body"})
+		return
+	}
+
+	err = h.Repository.UpdateDraftClaimFields(creatorID(), claimID, repository.ClaimUpdateInput{
+		ArtifactTitle:   body.ArtifactTitle,
+		ArtifactOrigin:  body.ArtifactOrigin,
+		AnalyzerModel:   body.AnalyzerModel,
+		OperatorComment: body.OperatorComment,
+		CuMeasured:      body.CuMeasured,
+		ZnMeasured:      body.ZnMeasured,
+		SnMeasured:      body.SnMeasured,
+		PbMeasured:      body.PbMeasured,
+	})
+	if err != nil {
+		h.handleRepoError(ctx, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"status":  "success",
+		"message": "draft claim updated",
+	})
+}
+
+func (h *Handler) FormClaimAPI(ctx *gin.Context) {
+	claimID, err := parseUintParam(ctx.Param("id"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid claim id"})
+		return
+	}
+
+	claim, err := h.Repository.FormDraftClaim(creatorID(), claimID)
+	if err != nil {
+		h.handleRepoError(ctx, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"data": gin.H{
+			"id":                        claim.ID,
+			"claim_code":                claim.ClaimCode,
+			"status":                    claim.Status,
+			"formed_at":                 claim.FormedAt,
+			"completion_formula_result": claim.CompletionFormulaResult,
+			"total_cost":                claim.TotalCost,
+			"planned_delivery_at":       claim.PlannedDeliveryAt,
+		},
+	})
+}
+
+func (h *Handler) ModerateClaimAPI(ctx *gin.Context) {
+	claimID, err := parseUintParam(ctx.Param("id"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid claim id"})
+		return
+	}
+
+	body := struct {
+		Action string `json:"action"`
+	}{}
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid JSON body"})
+		return
+	}
+
+	claim, err := h.Repository.ModerateFormedClaim(moderatorID(), claimID, body.Action)
+	if err != nil {
+		h.handleRepoError(ctx, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"data": gin.H{
+			"id":           claim.ID,
+			"claim_code":   claim.ClaimCode,
+			"status":       claim.Status,
+			"moderator_id": claim.ModeratorID,
+			"completed_at": claim.CompletedAt,
+		},
+	})
+}
+
+func (h *Handler) DeleteDraftClaimAPI(ctx *gin.Context) {
+	claimID, err := parseUintParam(ctx.Param("id"))
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid claim id"})
+		return
+	}
+
+	if err := h.Repository.DeleteDraftClaim(creatorID(), claimID); err != nil {
+		h.handleRepoError(ctx, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"status":  "success",
+		"message": "draft claim deleted",
+	})
+}
+
+func (h *Handler) RegisterUserAPI(ctx *gin.Context) {
+	body := struct {
+		Login    string `json:"login"`
+		FullName string `json:"full_name"`
+		Password string `json:"password"`
+	}{}
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid JSON body"})
+		return
+	}
+
+	user, err := h.Repository.RegisterUser(repository.RegisterUserInput{
+		Login:    body.Login,
+		FullName: body.FullName,
+		Password: body.Password,
+	})
+	if err != nil {
+		h.handleRepoError(ctx, err)
+		return
+	}
+
+	ctx.JSON(http.StatusCreated, gin.H{
+		"status": "success",
+		"data":   toUserSerializer(user),
+	})
+}
+
+func (h *Handler) AuthStubAPI(ctx *gin.Context) {
+	body := struct {
+		Login    string `json:"login"`
+		Password string `json:"password"`
+	}{}
+	if err := ctx.ShouldBindJSON(&body); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid JSON body"})
+		return
+	}
+
+	auth, err := h.Repository.AuthenticateStub(repository.AuthInput{
+		Login:    body.Login,
+		Password: body.Password,
+	})
+	if err != nil {
+		h.handleRepoError(ctx, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"data": gin.H{
+			"token":      auth.Token,
+			"expires_at": auth.ExpiresAt,
+		},
+	})
+}
+
+func (h *Handler) LogoutStubAPI(ctx *gin.Context) {
+	ctx.JSON(http.StatusOK, gin.H{
+		"status":  "success",
+		"message": "logout stub completed",
+	})
+}
+
+func (h *Handler) handleRepoError(ctx *gin.Context, err error) {
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		ctx.JSON(http.StatusNotFound, gin.H{"status": "error", "message": err.Error()})
+	case errors.Is(err, repository.ErrValidation):
+		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": err.Error()})
+	case errors.Is(err, repository.ErrInvalidTransition):
+		ctx.JSON(http.StatusConflict, gin.H{"status": "error", "message": err.Error()})
+	default:
+		ctx.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": err.Error()})
+	}
+}
+
+func creatorID() uint {
+	return identity.CurrentUsers().Creator.ID
+}
+
+func moderatorID() uint {
+	return identity.CurrentUsers().Moderator.ID
+}
+
+func parseUintParam(raw string) (uint, error) {
+	value, err := strconv.ParseUint(strings.TrimSpace(raw), 10, 64)
+	if err != nil || value == 0 {
+		return 0, fmt.Errorf("invalid uint")
+	}
+	return uint(value), nil
+}
+
+func parseRequiredFloat(raw, fieldName string) (float64, error) {
 	value := strings.TrimSpace(strings.ReplaceAll(raw, ",", "."))
 	if value == "" {
+		return 0, fmt.Errorf("%s is required", fieldName)
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a number", fieldName)
+	}
+	return parsed, nil
+}
+
+func parseClaimFilters(ctx *gin.Context) (repository.ClaimFilters, error) {
+	filters := repository.ClaimFilters{
+		Status: strings.TrimSpace(ctx.Query("status")),
+	}
+
+	if rawFrom := strings.TrimSpace(ctx.Query("formed_from")); rawFrom != "" {
+		from, err := time.Parse("2006-01-02", rawFrom)
+		if err != nil {
+			return repository.ClaimFilters{}, fmt.Errorf("formed_from must be YYYY-MM-DD")
+		}
+		filters.FormedFrom = &from
+	}
+
+	if rawTo := strings.TrimSpace(ctx.Query("formed_to")); rawTo != "" {
+		to, err := time.Parse("2006-01-02", rawTo)
+		if err != nil {
+			return repository.ClaimFilters{}, fmt.Errorf("formed_to must be YYYY-MM-DD")
+		}
+		to = to.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
+		filters.FormedTo = &to
+	}
+
+	return filters, nil
+}
+
+func readOptionalFile(ctx *gin.Context, field string) (*multipart.FileHeader, error) {
+	header, err := ctx.FormFile(field)
+	if err == nil {
+		return header, nil
+	}
+	if errors.Is(err, http.ErrMissingFile) {
 		return nil, nil
 	}
+	if strings.Contains(strings.ToLower(err.Error()), "no such file") {
+		return nil, nil
+	}
+	return nil, fmt.Errorf("cannot read %s file", field)
+}
 
-	number, err := strconv.ParseFloat(value, 64)
+func (h *Handler) uploadMultipartMedia(ctx *gin.Context, header *multipart.FileHeader, mediaKind string) (string, string, error) {
+	file, err := header.Open()
 	if err != nil {
-		return nil, err
+		return "", "", fmt.Errorf("open %s file: %w", mediaKind, err)
 	}
+	defer file.Close()
 
-	return number, nil
-}
-
-func mapClaimInputValues(claim model.ArtifactClaim) map[string]string {
-	return map[string]string{
-		"Artifact": stringOrEmpty(claim.ArtifactTitle),
-		"Origin":   stringOrEmpty(claim.ArtifactOrigin),
-		"Analyzer": stringOrEmpty(claim.AnalyzerModel),
-		"MM":       stringOrEmpty(claim.OperatorComment),
-		"ICu":      formatFloat(claim.CuMeasured),
-		"IZn":      formatFloat(claim.ZnMeasured),
-		"ISn":      formatFloat(claim.SnMeasured),
-		"IPb":      formatFloat(claim.PbMeasured),
-	}
-}
-
-func stringOrEmpty(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}
-
-func formatFloat(value *float64) string {
-	if value == nil {
-		return ""
-	}
-
-	formatted := strconv.FormatFloat(*value, 'f', 3, 64)
-	formatted = strings.TrimRight(formatted, "0")
-	formatted = strings.TrimRight(formatted, ".")
-	return formatted
+	contentType := header.Header.Get("Content-Type")
+	return h.Repository.UploadServiceMedia(
+		ctx.Request.Context(),
+		mediaKind,
+		header.Filename,
+		contentType,
+		header.Size,
+		file,
+	)
 }

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ .Service.Name }}</title>
-  <link rel="stylesheet" href="/styles/styles.css?v=20260224-3">
+  <link rel="stylesheet" href="/styles/styles.css?v=20260309-3">
 </head>
 <body>
   <header class="header">
@@ -15,7 +15,7 @@
   </header>
 
   <main class="page detail-page">
-    <section class="vibes-portrait">
+    <section class="vibes-portrait vibes-portrait-xl">
       {{ if .Service.VideoURL }}
       <video autoplay muted loop playsinline>
         <source src="{{ .Service.VideoURL }}" type="video/mp4">
@@ -25,37 +25,44 @@
       {{ else }}
       <div class="service-thumb service-thumb-empty">Видео и изображение отсутствуют</div>
       {{ end }}
-      <div class="vibes-overlay">
-        <p>{{ .Service.Era }} | {{ .Service.Culture }}</p>
-        <p>{{ .Service.Description }}</p>
+
+      <div class="vibes-overlay vibes-overlay-detail">
+        <div>
+          <h2>{{ .Service.Name }}</h2>
+          {{ if and (ne .Service.Era "") (ne .Service.Era "Не указано") (ne .Service.Culture "") (ne .Service.Culture "Не указано") }}
+          <p>{{ .Service.Era }} | {{ .Service.Culture }}</p>
+          {{ end }}
+          <p>Кратко: {{ .Service.Description }}</p>
+        </div>
+        <div class="overlay-table-wrap">
+          <h3 class="section-title">Единый список частот и коэффициентов K<sub>i</sub></h3>
+          <table class="table table-overlay">
+            <thead>
+              <tr>
+                <th>Линия</th>
+                <th>Калибровочный коэффициент</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Cu Kα (8.04 keV)</td><td>{{ .Service.CuReference }}</td></tr>
+              <tr><td>Zn Kα (8.64 keV)</td><td>{{ .Service.ZnReference }}</td></tr>
+              <tr><td>Sn Lα (3.44 keV)</td><td>{{ .Service.SnReference }}</td></tr>
+              <tr><td>Pb Lα (10.55 keV)</td><td>{{ .Service.PbReference }}</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
 
-    <section class="card detail-block">
-      <h2 class="section-title">Единый список частот и коэффициентов K<sub>i</sub></h2>
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Линия</th>
-            <th>Калибровочный коэффициент</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr><td>Cu Kα (8.04 keV)</td><td>{{ .Service.CuReference }}</td></tr>
-          <tr><td>Zn Kα (8.64 keV)</td><td>{{ .Service.ZnReference }}</td></tr>
-          <tr><td>Sn Lα (3.44 keV)</td><td>{{ .Service.SnReference }}</td></tr>
-          <tr><td>Pb Lα (10.55 keV)</td><td>{{ .Service.PbReference }}</td></tr>
-        </tbody>
-      </table>
-
-      <form class="add-form" method="post" action="/claims/add-service">
+    <section class="card detail-block detail-actions">
+      <form class="add-form" method="post" action="/artifact_claims/add-service">
         <input type="hidden" name="service_slug" value="{{ .Service.Slug }}">
         <input type="hidden" name="redirect_to" value="/services?added=1">
         <button class="chip" type="submit">Добавить услугу в текущую заявку</button>
       </form>
 
       {{ if .Draft }}
-      <p class="small">Текущая заявка: <a href="/claims/{{ .Draft.ClaimCode }}">{{ .Draft.ClaimCode }}</a> ({{ .Draft.ServiceCount }} услуги)</p>
+      <p class="small"><a href="/artifact_claims/{{ .Draft.ClaimCode }}">Открыть текущую заявку</a> ({{ .Draft.ServiceCount }} услуги)</p>
       {{ end }}
     </section>
   </main>

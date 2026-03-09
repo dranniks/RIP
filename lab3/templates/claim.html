@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Заявка {{ .Claim.ClaimCode }}</title>
-  <link rel="stylesheet" href="/styles/styles.css?v=20260224-3">
+  <link rel="stylesheet" href="/styles/styles.css?v=20260309-3">
 </head>
 <body>
   <header class="header">
@@ -15,34 +15,20 @@
   </header>
 
   <main class="page">
-    {{ if .Calculated }}
-    <p class="notice ok">Расчет выполнен по формуле C<sub>i</sub> = (I<sub>i</sub>/K<sub>i</sub>) / Σ(I<sub>j</sub>/K<sub>j</sub>) * 100%.</p>
-    {{ end }}
     {{ if .Submitted }}
     <p class="notice ok">Заявка отправлена: статус изменен на "сформирован".</p>
     {{ end }}
+    {{ if .Claim.CompletionFormulaResult }}
+    <p class="notice ok">Результат расчета заявки: {{ .Claim.CompletionFormulaResult }}</p>
+    {{ end }}
 
-    <h1 class="page-title">Заявка {{ .Claim.ClaimCode }}</h1>
+    <h1 class="page-title">artifact_claims {{ .Claim.ClaimCode }}</h1>
     <p class="page-subtitle">Расчет процентного содержания элементов и идентификация артефакта с эталонным сплавом. Текущий статус: <strong>{{ .Claim.Status }}</strong>.</p>
+    <p class="small">Создана: {{ .Claim.CreatedAt }} | Сформирована: {{ if .Claim.FormedAt }}{{ .Claim.FormedAt }}{{ else }}-{{ end }} | Завершена: {{ if .Claim.CompletedAt }}{{ .Claim.CompletedAt }}{{ else }}-{{ end }}</p>
 
     <section class="card claim-head">
       <div class="id-text">ID заявки: <strong>{{ .Claim.ClaimCode }}</strong></div>
-      <form class="claim-form" method="get" action="/claims/{{ .Claim.ClaimCode }}">
-        <div class="field">
-          <label for="artifact">Описание артефакта</label>
-          <textarea id="artifact" name="artifact" rows="3" placeholder="Например: фибула, место находки, эпоха">{{ .Input.Artifact }}</textarea>
-        </div>
-
-        <div class="field">
-          <label for="origin">Место находки</label>
-          <input id="origin" type="text" name="origin" value="{{ .Input.Origin }}" placeholder="Северное Причерноморье">
-        </div>
-
-        <div class="field">
-          <label for="analyzer">Модель анализатора</label>
-          <input id="analyzer" type="text" name="analyzer" value="{{ .Input.Analyzer }}" placeholder="Olympus Vanta">
-        </div>
-
+      <form class="claim-form" method="get" action="/artifact_claims/{{ .Claim.ClaimCode }}">
         <div class="freq-block">
           <h3>Интенсивности I<sub>i</sub></h3>
           <div class="freq-grid">
@@ -60,20 +46,19 @@
         </div>
 
         <div class="field">
-          <label for="mm">Экспертный комментарий</label>
-          <textarea id="mm" name="mm" rows="2" placeholder="Комментарий оператора по расчету">{{ .Input.MM }}</textarea>
+          <label for="mm">Комментарий к расчету</label>
+          <textarea id="mm" name="mm" rows="2" placeholder="Краткий комментарий">{{ .Input.MM }}</textarea>
         </div>
 
         <div class="action-row">
-          <button class="chip" type="submit" name="action" value="calculate">Рассчитать по формуле</button>
           {{ if .CanDelete }}
-          <button class="chip" type="submit" name="action" value="submit">Отправить заявку</button>
+          <button class="chip" type="submit" name="action" value="submit">Сформировать заявку</button>
           {{ end }}
         </div>
       </form>
 
       {{ if .CanDelete }}
-      <form class="delete-form" method="post" action="/claims/{{ .Claim.ClaimCode }}/delete">
+      <form class="delete-form" method="post" action="/artifact_claims/{{ .Claim.ClaimCode }}/delete">
         <button class="chip" type="submit">Удалить заявку</button>
       </form>
       {{ end }}
@@ -84,7 +69,7 @@
         <div>Изобр.</div>
         <div>Услуга</div>
         <div>Частоты и коэффициенты</div>
-        <div>Экспертный комментарий</div>
+        <div>Параметры m-m</div>
         <div>Результат расчета состава</div>
       </div>
 
@@ -99,14 +84,22 @@
           <div>{{ .Service.Slug }} / {{ .Service.Name }}</div>
           <div class="small">Cu {{ .Service.CuReference }} | Zn {{ .Service.ZnReference }} | Sn {{ .Service.SnReference }} | Pb {{ .Service.PbReference }}</div>
         </div>
-        <div class="small">{{ .Service.Description }}</div>
-        <div class="mm-box">
-          m-m: quantity={{ .Quantity }}, sort_order={{ .SortOrder }}, is_primary={{ .IsPrimary }}
-          {{ if $.Claim.OperatorComment }}<br>{{ $.Claim.OperatorComment }}{{ end }}
+        <div class="small">
+          Cu Kα: {{ .Service.CuReference }}<br>
+          Zn Kα: {{ .Service.ZnReference }}<br>
+          Sn Lα: {{ .Service.SnReference }}<br>
+          Pb Lα: {{ .Service.PbReference }}
         </div>
         <div class="mm-box">
+          Количество: {{ .Quantity }}
+        </div>
+        <div class="mm-box">
+          {{ if or (eq $.Claim.Status "сформирован") (eq $.Claim.Status "завершен") (eq $.Claim.Status "отклонен") }}
           {{ .CompositionResult }}
           <br><span class="small">match_score = {{ .MatchScore }}</span>
+          {{ else }}
+          Будет рассчитано после формирования заявки
+          {{ end }}
         </div>
       </article>
       {{ else }}

@@ -3,15 +3,18 @@ package repository
 import (
 	"errors"
 	"fmt"
-	"math"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 
+	"xrfApp/internal/app/identity"
 	"xrfApp/internal/app/model"
 )
 
@@ -21,12 +24,24 @@ const (
 	defaultDBName = "RIP"
 	defaultDBUser = "root"
 	defaultDBPass = "root"
-	minioEndpoint = "http://localhost:9000"
-	minioBucket   = "xrf-media"
+
+	defaultMinIOEndpoint  = "localhost:9000"
+	defaultMinIOAccessKey = "root"
+	defaultMinIOSecretKey = "rootroot"
+	defaultMinIOBucket    = "xrf-media"
+	defaultMinIOUseSSL    = "false"
+	defaultMinIOPublicURL = "http://localhost:9000"
+)
+
+var (
+	ErrValidation        = errors.New("validation error")
+	ErrInvalidTransition = errors.New("invalid claim transition")
 )
 
 type Repository struct {
-	db *gorm.DB
+	db       *gorm.DB
+	minio    *minio.Client
+	minioCfg minioConfig
 }
 
 type dbConnConfig struct {
@@ -37,31 +52,19 @@ type dbConnConfig struct {
 	pass string
 }
 
-type DraftCard struct {
-	ClaimCode    string
-	ServiceCount int64
-}
-
-type ClaimRow struct {
-	Service           model.ReferenceAlloyService
-	Quantity          int
-	SortOrder         int
-	IsPrimary         bool
-	CompositionResult string
-	MatchScore        float64
-}
-
-type ClaimDetails struct {
-	Claim         model.ArtifactClaim
-	Rows          []ClaimRow
-	TotalServices int
-	Formula       string
+type minioConfig struct {
+	endpoint  string
+	accessKey string
+	secretKey string
+	bucket    string
+	publicURL string
+	useSSL    bool
 }
 
 func NewRepository() (*Repository, error) {
 	loadDotEnvFile(".env")
 
-	cfg := dbConnConfig{
+	dbCfg := dbConnConfig{
 		host: envOrDefault("DB_HOST", defaultDBHost),
 		port: envOrDefault("DB_PORT", defaultDBPort),
 		name: envOrDefault("DB_NAME", defaultDBName),
@@ -69,274 +72,61 @@ func NewRepository() (*Repository, error) {
 		pass: envOrDefault("DB_PASS", defaultDBPass),
 	}
 
-	db, err := gorm.Open(postgres.Open(buildDSN(cfg)), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(buildDSN(dbCfg)), &gorm.Config{})
 	if err != nil {
-		return nil, fmt.Errorf("open db failed (docker postgres expected on %s:%s with %s/%s): %w",
-			cfg.host,
-			cfg.port,
-			cfg.user,
-			cfg.name,
-			err,
-		)
+		return nil, fmt.Errorf("open db failed: %w", err)
 	}
 
-	repo := &Repository{db: db}
-	if err = repo.migrate(); err != nil {
+	repo := &Repository{
+		db: db,
+		minioCfg: minioConfig{
+			endpoint:  envOrDefault("MINIO_ENDPOINT", defaultMinIOEndpoint),
+			accessKey: envOrDefault("MINIO_ROOT_USER", defaultMinIOAccessKey),
+			secretKey: envOrDefault("MINIO_ROOT_PASSWORD", defaultMinIOSecretKey),
+			bucket:    envOrDefault("MINIO_BUCKET", defaultMinIOBucket),
+			publicURL: strings.TrimRight(envOrDefault("MINIO_PUBLIC_URL", defaultMinIOPublicURL), "/"),
+			useSSL:    strings.EqualFold(envOrDefault("MINIO_USE_SSL", defaultMinIOUseSSL), "true"),
+		},
+	}
+
+	if err := repo.initMinIO(); err != nil {
 		return nil, err
 	}
-	if err = repo.seed(); err != nil {
+	if err := repo.migrate(); err != nil {
+		return nil, err
+	}
+	if err := repo.seed(); err != nil {
 		return nil, err
 	}
 
 	return repo, nil
 }
 
-func (r *Repository) SearchServices(query string) ([]model.ReferenceAlloyService, error) {
-	normalized := strings.ToLower(strings.TrimSpace(query))
-
-	dbQuery := r.db.Model(&model.ReferenceAlloyService{}).
-		Where("status = ?", model.ServiceStatusActive).
-		Order("name ASC")
-
-	if normalized != "" {
-		mask := "%" + normalized + "%"
-		dbQuery = dbQuery.Where(
-			"LOWER(name) LIKE ? OR LOWER(era) LIKE ? OR LOWER(culture) LIKE ?",
-			mask,
-			mask,
-			mask,
-		)
-	}
-
-	var services []model.ReferenceAlloyService
-	if err := dbQuery.Find(&services).Error; err != nil {
-		return nil, fmt.Errorf("search services: %w", err)
-	}
-
-	return services, nil
+func (r *Repository) DB() *gorm.DB {
+	return r.db
 }
 
-func (r *Repository) GetServiceBySlug(slug string) (model.ReferenceAlloyService, error) {
-	var service model.ReferenceAlloyService
-	err := r.db.
-		Where("slug = ? AND status = ?", slug, model.ServiceStatusActive).
-		First(&service).Error
-	if err != nil {
-		return model.ReferenceAlloyService{}, err
-	}
-
-	return service, nil
-}
-
-func (r *Repository) GetDraftCard(creatorID uint) (*DraftCard, error) {
-	var claim model.ArtifactClaim
-	err := r.db.
-		Where("creator_id = ? AND status = ?", creatorID, model.ClaimStatusDraft).
-		First(&claim).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("load draft: %w", err)
-	}
-
-	var total int64
-	if scanErr := r.db.
-		Raw("SELECT COALESCE(SUM(quantity), 0) FROM claim_alloy_matches WHERE claim_id = ?", claim.ID).
-		Scan(&total).Error; scanErr != nil {
-		return nil, fmt.Errorf("count draft services: %w", scanErr)
-	}
-
-	return &DraftCard{
-		ClaimCode:    claim.ClaimCode,
-		ServiceCount: total,
-	}, nil
-}
-
-func (r *Repository) AddServiceToDraft(creatorID uint, serviceSlug string) (string, error) {
-	var claimCode string
-
-	err := r.db.Transaction(func(tx *gorm.DB) error {
-		var service model.ReferenceAlloyService
-		if serviceErr := tx.
-			Where("slug = ? AND status = ?", serviceSlug, model.ServiceStatusActive).
-			First(&service).Error; serviceErr != nil {
-			return serviceErr
-		}
-
-		claim, claimErr := r.findOrCreateDraftClaim(tx, creatorID)
-		if claimErr != nil {
-			return claimErr
-		}
-		claimCode = claim.ClaimCode
-
-		var link model.ClaimAlloyMatch
-		linkErr := tx.
-			Where("claim_id = ? AND service_id = ?", claim.ID, service.ID).
-			First(&link).Error
-
-		matchScore := calculateMatchScore(claim, service)
-		compositionResult := buildCompositionResult(claim, service)
-
-		if errors.Is(linkErr, gorm.ErrRecordNotFound) {
-			sortOrder, orderErr := nextSortOrder(tx, claim.ID)
-			if orderErr != nil {
-				return orderErr
-			}
-
-			link = model.ClaimAlloyMatch{
-				ClaimID:           claim.ID,
-				ServiceID:         service.ID,
-				Quantity:          1,
-				SortOrder:         sortOrder,
-				IsPrimary:         false,
-				CompositionResult: &compositionResult,
-				MatchScore:        &matchScore,
-			}
-			if createErr := tx.Create(&link).Error; createErr != nil {
-				return createErr
-			}
-		} else if linkErr != nil {
-			return linkErr
-		} else {
-			link.Quantity++
-			link.CompositionResult = &compositionResult
-			link.MatchScore = &matchScore
-			if saveErr := tx.Save(&link).Error; saveErr != nil {
-				return saveErr
-			}
-		}
-
-		if bestErr := updateBestMatch(tx, claim.ID); bestErr != nil {
-			return bestErr
-		}
-
-		return nil
+func (r *Repository) initMinIO() error {
+	client, err := minio.New(r.minioCfg.endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(r.minioCfg.accessKey, r.minioCfg.secretKey, ""),
+		Secure: r.minioCfg.useSSL,
 	})
 	if err != nil {
-		return "", fmt.Errorf("add service to draft: %w", err)
+		return fmt.Errorf("create minio client: %w", err)
 	}
 
-	return claimCode, nil
-}
+	r.minio = client
 
-func (r *Repository) GetClaimByCode(creatorID uint, claimCode string) (*ClaimDetails, error) {
-	var claim model.ArtifactClaim
-	err := r.db.
-		Preload("Creator").
-		Preload("Moderator").
-		Where("claim_code = ? AND creator_id = ? AND status <> ?", claimCode, creatorID, model.ClaimStatusDeleted).
-		First(&claim).Error
+	exists, err := client.BucketExists(ctxTimeout(), r.minioCfg.bucket)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("check minio bucket: %w", err)
 	}
-
-	var links []model.ClaimAlloyMatch
-	if linksErr := r.db.
-		Preload("Service").
-		Where("claim_id = ?", claim.ID).
-		Order("sort_order ASC").
-		Find(&links).Error; linksErr != nil {
-		return nil, fmt.Errorf("load claim links: %w", linksErr)
-	}
-
-	rows := make([]ClaimRow, 0, len(links))
-	total := 0
-	for _, link := range links {
-		total += link.Quantity
-
-		row := ClaimRow{
-			Service:           link.Service,
-			Quantity:          link.Quantity,
-			SortOrder:         link.SortOrder,
-			IsPrimary:         link.IsPrimary,
-			CompositionResult: buildCompositionResult(&claim, link.Service),
-			MatchScore:        calculateMatchScore(&claim, link.Service),
-		}
-
-		rows = append(rows, row)
-	}
-
-	return &ClaimDetails{
-		Claim:         claim,
-		Rows:          rows,
-		TotalServices: total,
-		Formula:       "Ci = (Ii / Ki) / Σ(Ij / Kj) * 100%",
-	}, nil
-}
-
-func (r *Repository) UpdateClaimInputData(
-	creatorID uint,
-	claimCode string,
-	updates map[string]any,
-) error {
-	if len(updates) == 0 {
+	if exists {
 		return nil
 	}
 
-	tx := r.db.
-		Model(&model.ArtifactClaim{}).
-		Where(
-			"claim_code = ? AND creator_id = ? AND status <> ?",
-			claimCode,
-			creatorID,
-			model.ClaimStatusDeleted,
-		).
-		Updates(updates)
-	if tx.Error != nil {
-		return fmt.Errorf("update claim input: %w", tx.Error)
-	}
-	if tx.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
-	}
-
-	return nil
-}
-
-func (r *Repository) SubmitDraftClaimORM(creatorID uint, claimCode string) error {
-	tx := r.db.
-		Model(&model.ArtifactClaim{}).
-		Where(
-			"claim_code = ? AND creator_id = ? AND status = ?",
-			claimCode,
-			creatorID,
-			model.ClaimStatusDraft,
-		).
-		Updates(map[string]any{
-			"status":    model.ClaimStatusFormed,
-			"formed_at": time.Now(),
-		})
-	if tx.Error != nil {
-		return fmt.Errorf("submit claim: %w", tx.Error)
-	}
-	if tx.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
-	}
-
-	return nil
-}
-
-func (r *Repository) SoftDeleteDraftClaimSQL(creatorID uint, claimCode string) error {
-	query := `
-		UPDATE artifact_claims
-		SET status = ?
-		WHERE claim_code = ?
-		  AND creator_id = ?
-		  AND status = ?
-	`
-
-	tx := r.db.Exec(
-		query,
-		model.ClaimStatusDeleted,
-		claimCode,
-		creatorID,
-		model.ClaimStatusDraft,
-	)
-	if tx.Error != nil {
-		return fmt.Errorf("soft delete claim: %w", tx.Error)
-	}
-	if tx.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
+	if err = client.MakeBucket(ctxTimeout(), r.minioCfg.bucket, minio.MakeBucketOptions{}); err != nil {
+		return fmt.Errorf("create minio bucket %s: %w", r.minioCfg.bucket, err)
 	}
 
 	return nil
@@ -352,367 +142,203 @@ func (r *Repository) migrate() error {
 		return fmt.Errorf("auto migrate: %w", err)
 	}
 
-	migrationStatements := []string{
-		"ALTER TABLE reference_alloy_services DROP CONSTRAINT IF EXISTS ck_reference_alloy_services_status",
-		"ALTER TABLE reference_alloy_services ADD CONSTRAINT ck_reference_alloy_services_status CHECK (status IN ('действует', 'удален'))",
-		"ALTER TABLE artifact_claims DROP CONSTRAINT IF EXISTS ck_artifact_claims_status",
-		"ALTER TABLE artifact_claims ADD CONSTRAINT ck_artifact_claims_status CHECK (status IN ('черновик', 'удален', 'сформирован', 'завершен', 'отклонен'))",
-		"CREATE UNIQUE INDEX IF NOT EXISTS ux_claim_draft_per_creator ON artifact_claims (creator_id) WHERE status = 'черновик'",
-		`
-		CREATE OR REPLACE FUNCTION recalc_completion_result()
-		RETURNS TRIGGER AS $$
-		DECLARE
-			max_score numeric(8,2);
-		BEGIN
-			IF NEW.status = 'завершен' AND OLD.status IS DISTINCT FROM NEW.status THEN
-				SELECT COALESCE(MAX(match_score), 0)
-				INTO max_score
-				FROM claim_alloy_matches
-				WHERE claim_id = NEW.id;
-				NEW.completion_formula_result := ROUND(max_score, 2);
-			END IF;
-			RETURN NEW;
-		END;
-		$$ LANGUAGE plpgsql
-		`,
-		"DROP TRIGGER IF EXISTS trg_recalc_completion_result ON artifact_claims",
-		`
-		CREATE TRIGGER trg_recalc_completion_result
-		BEFORE UPDATE OF status ON artifact_claims
-		FOR EACH ROW
-		EXECUTE FUNCTION recalc_completion_result()
-		`,
+	stmts := []string{
+		"ALTER TABLE reference_alloy_services ADD COLUMN IF NOT EXISTS image_file_name VARCHAR(160)",
+		"ALTER TABLE reference_alloy_services ADD COLUMN IF NOT EXISTS video_file_name VARCHAR(160)",
+		"ALTER TABLE reference_alloy_services ADD COLUMN IF NOT EXISTS unit_price NUMERIC(10,2) NOT NULL DEFAULT 0",
+		"ALTER TABLE artifact_claims ADD COLUMN IF NOT EXISTS artifact_origin VARCHAR(180)",
+		"ALTER TABLE artifact_claims ADD COLUMN IF NOT EXISTS analyzer_model VARCHAR(120)",
+		"ALTER TABLE artifact_claims ADD COLUMN IF NOT EXISTS total_cost NUMERIC(12,2)",
+		"ALTER TABLE artifact_claims ADD COLUMN IF NOT EXISTS planned_delivery_at TIMESTAMP",
+		"ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255) NOT NULL DEFAULT ''",
+		"ALTER TABLE claim_alloy_matches ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE claim_alloy_matches ADD COLUMN IF NOT EXISTS match_value NUMERIC(10,3)",
+		"ALTER TABLE claim_alloy_matches ADD COLUMN IF NOT EXISTS composition_result VARCHAR(255)",
+		"ALTER TABLE claim_alloy_matches ADD COLUMN IF NOT EXISTS match_score NUMERIC(8,2)",
+		"ALTER TABLE claim_alloy_matches ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()",
+		"ALTER TABLE claim_alloy_matches ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()",
+		"UPDATE reference_alloy_services SET status = '" + model.ServiceStatusActive + "' WHERE status NOT IN ('" + model.ServiceStatusActive + "', '" + model.ServiceStatusDeleted + "')",
+		"UPDATE artifact_claims SET status = '" + model.ClaimStatusDraft + "' WHERE status NOT IN ('" + model.ClaimStatusDraft + "', '" + model.ClaimStatusDeleted + "', '" + model.ClaimStatusFormed + "', '" + model.ClaimStatusCompleted + "', '" + model.ClaimStatusRejected + "')",
+		"CREATE UNIQUE INDEX IF NOT EXISTS ux_claim_draft_per_creator ON artifact_claims (creator_id) WHERE status = '" + model.ClaimStatusDraft + "'",
 	}
 
-	for _, stmt := range migrationStatements {
+	for _, stmt := range stmts {
 		if err := r.db.Exec(stmt).Error; err != nil {
 			return fmt.Errorf("migration statement failed: %w", err)
 		}
+	}
+
+	if err := r.db.Exec("ALTER TABLE reference_alloy_services DROP CONSTRAINT IF EXISTS ck_reference_alloy_services_status").Error; err != nil {
+		return fmt.Errorf("drop service status check: %w", err)
+	}
+	if err := r.db.Exec("ALTER TABLE artifact_claims DROP CONSTRAINT IF EXISTS ck_artifact_claims_status").Error; err != nil {
+		return fmt.Errorf("drop claim status check: %w", err)
+	}
+	serviceStatusCheckSQL := fmt.Sprintf(
+		"ALTER TABLE reference_alloy_services ADD CONSTRAINT ck_reference_alloy_services_status CHECK (status IN ('%s', '%s'))",
+		model.ServiceStatusActive,
+		model.ServiceStatusDeleted,
+	)
+	if err := r.db.Exec(serviceStatusCheckSQL).Error; err != nil {
+		return fmt.Errorf("add service status check: %w", err)
+	}
+	claimStatusCheckSQL := fmt.Sprintf(
+		"ALTER TABLE artifact_claims ADD CONSTRAINT ck_artifact_claims_status CHECK (status IN ('%s', '%s', '%s', '%s', '%s'))",
+		model.ClaimStatusDraft,
+		model.ClaimStatusDeleted,
+		model.ClaimStatusFormed,
+		model.ClaimStatusCompleted,
+		model.ClaimStatusRejected,
+	)
+	if err := r.db.Exec(claimStatusCheckSQL).Error; err != nil {
+		return fmt.Errorf("add claim status check: %w", err)
 	}
 
 	return nil
 }
 
 func (r *Repository) seed() error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
-		users := []model.User{
-			{
-				ID:       1,
-				Login:    "xrf_creator",
-				FullName: "Создатель заявок",
-				Role:     "creator",
-			},
-			{
-				ID:       2,
-				Login:    "xrf_moderator",
-				FullName: "Модератор XRF",
-				Role:     "moderator",
-			},
-		}
-		for _, user := range users {
-			existing := model.User{}
-			err := tx.Where("id = ?", user.ID).First(&existing).Error
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				if createErr := tx.Create(&user).Error; createErr != nil {
-					return createErr
-				}
-				continue
-			}
-			if err != nil {
-				return err
-			}
-		}
+	users := identity.CurrentUsers()
 
-		bronzeImage := mediaURL("bronze.png")
-		brassImage := mediaURL("brass.png")
-		ironImage := mediaURL("iron.png")
-		silverImage := mediaURL("silver.png")
-		bronzeVideo := mediaURL("bronze.mp4")
-		brassVideo := mediaURL("brass.mp4")
-		ironVideo := mediaURL("iron.mp4")
-		silverVideo := mediaURL("silver.mp4")
+	creator := model.User{
+		ID:           users.Creator.ID,
+		Login:        users.Creator.Login,
+		FullName:     "Claim Creator",
+		PasswordHash: hashPassword("creator"),
+		Role:         users.Creator.Role,
+	}
+	moderator := model.User{
+		ID:           users.Moderator.ID,
+		Login:        users.Moderator.Login,
+		FullName:     "Claim Moderator",
+		PasswordHash: hashPassword("moderator"),
+		Role:         users.Moderator.Role,
+	}
 
-		services := []model.ReferenceAlloyService{
-			{
-				Slug:        "alloy-bronze-cyprus",
-				Name:        "Бронза Кипра",
-				Description: "Эталон позднего бронзового века для проверки сплавов Cu/Sn/Pb.",
-				Status:      model.ServiceStatusActive,
-				ImageURL:    &bronzeImage,
-				VideoURL:    &bronzeVideo,
-				Era:         "Поздний бронзовый век",
-				Culture:     "Восточное Средиземноморье",
-				CuReference: 0.830,
-				ZnReference: 0.040,
-				SnReference: 0.310,
-				PbReference: 0.120,
-			},
-			{
-				Slug:        "alloy-brass-rome",
-				Name:        "Латунь Рима",
-				Description: "Эталон римской латуни с выраженным Zn-пиком для XRF-сопоставления.",
-				Status:      model.ServiceStatusActive,
-				ImageURL:    &brassImage,
-				VideoURL:    &brassVideo,
-				Era:         "I-III вв. н.э.",
-				Culture:     "Римская империя",
-				CuReference: 0.780,
-				ZnReference: 0.640,
-				SnReference: 0.060,
-				PbReference: 0.030,
-			},
-			{
-				Slug:        "alloy-iron-north",
-				Name:        "Железный сплав Севера",
-				Description: "Контрольный эталон для отсечения ложных совпадений с бронзой и латунью.",
-				Status:      model.ServiceStatusActive,
-				ImageURL:    &ironImage,
-				VideoURL:    &ironVideo,
-				Era:         "VIII-XI вв.",
-				Culture:     "Скандинавские мастерские",
-				CuReference: 0.140,
-				ZnReference: 0.020,
-				SnReference: 0.010,
-				PbReference: 0.010,
-			},
-			{
-				Slug:        "alloy-silver-byzantium",
-				Name:        "Серебро Византии",
-				Description: "Эталон серебряных сплавов Ag/Cu; изображение намеренно NULL для демонстрации nullable-поля.",
-				Status:      model.ServiceStatusActive,
-				ImageURL:    &silverImage,
-				VideoURL:    &silverVideo,
-				Era:         "X-XII вв.",
-				Culture:     "Византийские мастерские",
-				CuReference: 0.290,
-				ZnReference: 0.010,
-				SnReference: 0.000,
-				PbReference: 0.090,
-			},
-		}
-
-		for _, service := range services {
-			existing := model.ReferenceAlloyService{}
-			err := tx.Where("slug = ?", service.Slug).First(&existing).Error
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				if createErr := tx.Create(&service).Error; createErr != nil {
-					return createErr
-				}
-				continue
-			}
-			if err != nil {
-				return err
-			}
-
-			if updateErr := tx.Model(&existing).Updates(map[string]any{
-				"name":         service.Name,
-				"description":  service.Description,
-				"status":       service.Status,
-				"image_url":    service.ImageURL,
-				"video_url":    service.VideoURL,
-				"era":          service.Era,
-				"culture":      service.Culture,
-				"cu_reference": service.CuReference,
-				"zn_reference": service.ZnReference,
-				"sn_reference": service.SnReference,
-				"pb_reference": service.PbReference,
-			}).Error; updateErr != nil {
-				return updateErr
-			}
-		}
-
-		if err := resetSequence(tx, "users", "id"); err != nil {
+	for _, u := range []model.User{creator, moderator} {
+		if err := upsertUser(r.db, u); err != nil {
 			return err
 		}
-		if err := resetSequence(tx, "reference_alloy_services", "id"); err != nil {
+	}
+
+	services := []model.ReferenceAlloyService{
+		{
+			Slug:        "alloy-bronze-cyprus",
+			Name:        "Bronze Cyprus",
+			Description: "Reference bronze sample for XRF.",
+			Status:      model.ServiceStatusActive,
+			Era:         "Late Bronze Age",
+			Culture:     "Eastern Mediterranean",
+			UnitPrice:   1250,
+			CuReference: 0.830,
+			ZnReference: 0.040,
+			SnReference: 0.310,
+			PbReference: 0.120,
+		},
+		{
+			Slug:        "alloy-brass-rome",
+			Name:        "Brass Rome",
+			Description: "Roman brass reference sample with high Zn.",
+			Status:      model.ServiceStatusActive,
+			Era:         "I-III centuries",
+			Culture:     "Roman Empire",
+			UnitPrice:   1420,
+			CuReference: 0.780,
+			ZnReference: 0.640,
+			SnReference: 0.060,
+			PbReference: 0.030,
+		},
+		{
+			Slug:        "alloy-silver-byzantium",
+			Name:        "Silver Byzantium",
+			Description: "Byzantine silver reference sample.",
+			Status:      model.ServiceStatusActive,
+			Era:         "X-XII centuries",
+			Culture:     "Byzantine workshops",
+			UnitPrice:   2100,
+			CuReference: 0.290,
+			ZnReference: 0.010,
+			SnReference: 0.000,
+			PbReference: 0.090,
+		},
+	}
+
+	for _, svc := range services {
+		if err := upsertService(r.db, svc); err != nil {
 			return err
 		}
-		if err := resetSequence(tx, "artifact_claims", "id"); err != nil {
-			return err
-		}
-		if err := resetSequence(tx, "claim_alloy_matches", "id"); err != nil {
-			return err
-		}
-
-		return nil
-	})
-}
-
-func (r *Repository) findOrCreateDraftClaim(tx *gorm.DB, creatorID uint) (*model.ArtifactClaim, error) {
-	claim := model.ArtifactClaim{}
-	err := tx.
-		Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("creator_id = ? AND status = ?", creatorID, model.ClaimStatusDraft).
-		First(&claim).Error
-	if err == nil {
-		return &claim, nil
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, err
 	}
 
-	cu := 0.790
-	zn := 0.190
-	sn := 0.010
-	pb := 0.020
-	title := "Неизвестный металлический артефакт"
-	origin := "Не указано"
-	analyzer := "Olympus Vanta"
-	operatorComment := "Комментарий оператора отсутствует"
-
-	claim = model.ArtifactClaim{
-		ClaimCode:       generateClaimCode(),
-		Status:          model.ClaimStatusDraft,
-		CreatorID:       creatorID,
-		ArtifactTitle:   &title,
-		ArtifactOrigin:  &origin,
-		AnalyzerModel:   &analyzer,
-		OperatorComment: &operatorComment,
-		CuMeasured:      &cu,
-		ZnMeasured:      &zn,
-		SnMeasured:      &sn,
-		PbMeasured:      &pb,
-	}
-	if createErr := tx.Create(&claim).Error; createErr != nil {
-		return nil, createErr
-	}
-
-	return &claim, nil
-}
-
-func nextSortOrder(tx *gorm.DB, claimID uint) (int, error) {
-	var maxOrder int
-	if err := tx.
-		Raw("SELECT COALESCE(MAX(sort_order), 0) FROM claim_alloy_matches WHERE claim_id = ?", claimID).
-		Scan(&maxOrder).Error; err != nil {
-		return 0, err
-	}
-
-	return maxOrder + 1, nil
-}
-
-func updateBestMatch(tx *gorm.DB, claimID uint) error {
-	type topMatch struct {
-		Name  string
-		Score float64
-	}
-
-	best := topMatch{}
-	err := tx.
-		Table("claim_alloy_matches AS m").
-		Select("s.name, COALESCE(m.match_score, 0) AS score").
-		Joins("JOIN reference_alloy_services s ON s.id = m.service_id").
-		Where("m.claim_id = ?", claimID).
-		Order("score DESC, m.sort_order ASC").
-		Limit(1).
-		Scan(&best).Error
-	if err != nil {
+	if err := resetSequence(r.db, "users", "id"); err != nil {
 		return err
 	}
-	if best.Name == "" {
+	if err := resetSequence(r.db, "reference_alloy_services", "id"); err != nil {
+		return err
+	}
+	if err := resetSequence(r.db, "artifact_claims", "id"); err != nil {
+		return err
+	}
+	if err := resetSequence(r.db, "claim_alloy_matches", "id"); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func upsertUser(db *gorm.DB, user model.User) error {
+	existing := model.User{}
+	err := db.Where("id = ?", user.ID).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		if createErr := db.Create(&user).Error; createErr != nil {
+			return fmt.Errorf("seed create user: %w", createErr)
+		}
 		return nil
 	}
-
-	return tx.
-		Model(&model.ArtifactClaim{}).
-		Where("id = ?", claimID).
-		Update("best_match_label", best.Name).Error
-}
-
-type compositionVector struct {
-	Cu float64
-	Zn float64
-	Sn float64
-	Pb float64
-}
-
-func calculateMatchScore(claim *model.ArtifactClaim, service model.ReferenceAlloyService) float64 {
-	composition := calculateCompositionFormula(claim, service)
-	ref := normalizeReferenceVector(service)
-
-	diff := math.Abs(composition.Cu-ref.Cu) +
-		math.Abs(composition.Zn-ref.Zn) +
-		math.Abs(composition.Sn-ref.Sn) +
-		math.Abs(composition.Pb-ref.Pb)
-
-	score := 100 - diff*0.25
-	if score < 0 {
-		score = 0
-	}
-	if score > 100 {
-		score = 100
-	}
-	return math.Round(score*100) / 100
-}
-
-func buildCompositionResult(claim *model.ArtifactClaim, service model.ReferenceAlloyService) string {
-	composition := calculateCompositionFormula(claim, service)
-
-	return fmt.Sprintf(
-		"Cu %.1f%%, Zn %.1f%%, Sn %.1f%%, Pb %.1f%%",
-		composition.Cu,
-		composition.Zn,
-		composition.Sn,
-		composition.Pb,
-	)
-}
-
-func calculateCompositionFormula(
-	claim *model.ArtifactClaim,
-	service model.ReferenceAlloyService,
-) compositionVector {
-	cuTerm := safeDivision(valueOrZero(claim.CuMeasured), service.CuReference)
-	znTerm := safeDivision(valueOrZero(claim.ZnMeasured), service.ZnReference)
-	snTerm := safeDivision(valueOrZero(claim.SnMeasured), service.SnReference)
-	pbTerm := safeDivision(valueOrZero(claim.PbMeasured), service.PbReference)
-
-	denominator := cuTerm + znTerm + snTerm + pbTerm
-	if denominator <= 0 {
-		return compositionVector{}
+	if err != nil {
+		return fmt.Errorf("seed find user: %w", err)
 	}
 
-	return compositionVector{
-		Cu: math.Round((cuTerm/denominator)*10000) / 100,
-		Zn: math.Round((znTerm/denominator)*10000) / 100,
-		Sn: math.Round((snTerm/denominator)*10000) / 100,
-		Pb: math.Round((pbTerm/denominator)*10000) / 100,
-	}
-}
-
-func normalizeReferenceVector(service model.ReferenceAlloyService) compositionVector {
-	sum := service.CuReference + service.ZnReference + service.SnReference + service.PbReference
-	if sum <= 0 {
-		return compositionVector{}
+	if updateErr := db.Model(&existing).Updates(map[string]any{
+		"login":         user.Login,
+		"full_name":     user.FullName,
+		"password_hash": user.PasswordHash,
+		"role":          user.Role,
+	}).Error; updateErr != nil {
+		return fmt.Errorf("seed update user: %w", updateErr)
 	}
 
-	return compositionVector{
-		Cu: (service.CuReference / sum) * 100,
-		Zn: (service.ZnReference / sum) * 100,
-		Sn: (service.SnReference / sum) * 100,
-		Pb: (service.PbReference / sum) * 100,
+	return nil
+}
+
+func upsertService(db *gorm.DB, service model.ReferenceAlloyService) error {
+	existing := model.ReferenceAlloyService{}
+	err := db.Where("slug = ?", service.Slug).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		if createErr := db.Create(&service).Error; createErr != nil {
+			return fmt.Errorf("seed create service: %w", createErr)
+		}
+		return nil
 	}
-}
-
-func safeDivision(value float64, coefficient float64) float64 {
-	if coefficient == 0 {
-		return 0
+	if err != nil {
+		return fmt.Errorf("seed find service: %w", err)
 	}
-	return value / coefficient
-}
 
-func valueOrZero(v *float64) float64 {
-	if v == nil {
-		return 0
+	if updateErr := db.Model(&existing).Updates(map[string]any{
+		"name":         service.Name,
+		"description":  service.Description,
+		"status":       service.Status,
+		"era":          service.Era,
+		"culture":      service.Culture,
+		"unit_price":   service.UnitPrice,
+		"cu_reference": service.CuReference,
+		"zn_reference": service.ZnReference,
+		"sn_reference": service.SnReference,
+		"pb_reference": service.PbReference,
+	}).Error; updateErr != nil {
+		return fmt.Errorf("seed update service: %w", updateErr)
 	}
-	return *v
-}
 
-func generateClaimCode() string {
-	return fmt.Sprintf("claim-%d", time.Now().UnixNano())
-}
-
-func mediaURL(objectKey string) string {
-	return fmt.Sprintf("%s/%s/%s", minioEndpoint, minioBucket, objectKey)
+	return nil
 }
 
 func buildDSN(cfg dbConnConfig) string {
@@ -746,9 +372,7 @@ func loadDotEnvFile(path string) {
 		}
 
 		key := strings.TrimSpace(parts[0])
-		value := strings.TrimSpace(parts[1])
-		value = strings.Trim(value, "\"'")
-
+		value := strings.Trim(strings.TrimSpace(parts[1]), "\"'")
 		if key == "" || os.Getenv(key) != "" {
 			continue
 		}
@@ -765,7 +389,55 @@ func envOrDefault(key, fallback string) string {
 	return value
 }
 
-func resetSequence(tx *gorm.DB, tableName, columnName string) error {
+func objectURL(baseURL, bucket, objectName string) string {
+	return fmt.Sprintf("%s/%s/%s", strings.TrimRight(baseURL, "/"), bucket, objectName)
+}
+
+var nonLatinFilenameChars = regexp.MustCompile(`[^a-z0-9]+`)
+
+func generateLatinSlug(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	normalized = nonLatinFilenameChars.ReplaceAllString(normalized, "-")
+	normalized = strings.Trim(normalized, "-")
+	if normalized == "" {
+		return "service"
+	}
+	return normalized
+}
+
+func generateClaimCode(claimID uint) string {
+	return fmt.Sprintf("CLM-%06d", claimID)
+}
+
+func generateMediaObjectName(kind, originalFileName string) string {
+	ext := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(filepathExt(originalFileName), ".")))
+	if ext == "" {
+		ext = "bin"
+	}
+	stamp := strconv.FormatInt(time.Now().UnixNano(), 10)
+	base := fmt.Sprintf("%s-%s", kind, stamp)
+	base = nonLatinFilenameChars.ReplaceAllString(strings.ToLower(base), "-")
+	base = strings.Trim(base, "-")
+	if base == "" {
+		base = kind
+	}
+	return base + "." + ext
+}
+
+func filepathExt(fileName string) string {
+	idx := strings.LastIndex(fileName, ".")
+	if idx < 0 {
+		return ""
+	}
+	return fileName[idx:]
+}
+
+func ptrTime(t time.Time) *time.Time {
+	v := t
+	return &v
+}
+
+func resetSequence(db *gorm.DB, tableName, columnName string) error {
 	query := fmt.Sprintf(
 		"SELECT setval(pg_get_serial_sequence('%s', '%s'), COALESCE((SELECT MAX(%s) FROM %s), 1), true)",
 		tableName,
@@ -773,7 +445,7 @@ func resetSequence(tx *gorm.DB, tableName, columnName string) error {
 		columnName,
 		tableName,
 	)
-	if err := tx.Exec(query).Error; err != nil {
+	if err := db.Exec(query).Error; err != nil {
 		return fmt.Errorf("reset sequence %s.%s: %w", tableName, columnName, err)
 	}
 	return nil

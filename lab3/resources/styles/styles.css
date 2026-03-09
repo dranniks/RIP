@@ -6,8 +6,8 @@
   --text: #ffffff;
   --muted: #b8b8b8;
   --brand-font: "Trebuchet MS", "Segoe UI", sans-serif;
-  --detail-media-width: 460px;
-  --detail-media-ratio: 9 / 12;
+  --detail-media-width: 980px;
+  --detail-media-ratio: 16 / 9;
 }
 
 * {
@@ -61,7 +61,7 @@ a {
 }
 
 .page {
-  max-width: 1200px;
+  max-width: 1320px;
   margin: 0 auto;
   padding: 22px;
 }
@@ -180,14 +180,21 @@ td {
 }
 
 .service-card {
-  display: block;
+  display: flex;
+  flex-direction: column;
   background: var(--card);
   border: 1px solid var(--line);
   transition: transform 0.2s ease, background 0.2s ease;
+  height: 100%;
 }
 
 .service-card > a {
   display: block;
+  flex: 1 1 auto;
+}
+
+.service-card > .service-body {
+  margin-top: auto;
 }
 
 .service-card:hover {
@@ -291,17 +298,22 @@ button.chip:disabled {
 }
 
 .detail-page {
-  max-width: 900px;
+  max-width: 1160px;
 }
 
 .vibes-portrait {
   position: relative;
   width: min(100%, var(--detail-media-width));
+  height: 1000px;
   aspect-ratio: var(--detail-media-ratio);
   margin: 0 auto 18px auto;
   border: 1px solid var(--line);
   overflow: hidden;
   background: #101010;
+}
+
+.vibes-portrait-xl {
+  width: min(100%, 980px);
 }
 
 .vibes-portrait video,
@@ -334,9 +346,33 @@ button.chip:disabled {
   overflow-wrap: anywhere;
 }
 
+.vibes-overlay-detail {
+  display: grid;
+  gap: 10px;
+}
+
+.overlay-table-wrap {
+  background: rgba(5, 5, 5, 0.72);
+  border: 1px solid var(--line);
+  padding: 10px;
+}
+
+.overlay-table-wrap .section-title {
+  margin-bottom: 8px;
+}
+
+.table-overlay th,
+.table-overlay td {
+  background: rgba(10, 10, 10, 0.55);
+}
+
 .detail-block {
   width: min(100%, var(--detail-media-width));
   margin: 0 auto;
+}
+
+.detail-actions {
+  margin-top: 14px;
 }
 
 .table {
@@ -400,14 +436,14 @@ button.chip:disabled {
 
 .freq-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
 
 .rows-header,
 .claim-row {
   display: grid;
-  grid-template-columns: 86px 1.1fr 1fr 1fr 1.1fr;
+  grid-template-columns: 96px 1.2fr 1fr 1fr 1.2fr;
   gap: 10px;
   align-items: center;
 }
@@ -428,8 +464,8 @@ button.chip:disabled {
 }
 
 .claim-thumb {
-  width: 86px;
-  height: 68px;
+  width: 96px;
+  height: 72px;
   object-fit: cover;
   border: 1px solid var(--line);
 }
@@ -443,7 +479,8 @@ button.chip:disabled {
   background: #111111;
   border: 1px solid var(--line);
   padding: 8px;
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .notice {
@@ -511,7 +548,7 @@ button.chip:disabled {
   }
 
   .freq-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .rows-header {
@@ -525,5 +562,11 @@ button.chip:disabled {
   .claim-thumb {
     width: 100%;
     height: 180px;
+  }
+}
+
+@media (max-width: 640px) {
+  .freq-grid {
+    grid-template-columns: 1fr;
   }
 }
