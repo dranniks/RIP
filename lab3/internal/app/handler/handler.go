@@ -39,15 +39,14 @@ func (h *Handler) GetServicesAPI(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"status": "success",
-		"data":   result,
+		"data": result,
 	})
 }
 
 func (h *Handler) GetServiceAPI(ctx *gin.Context) {
 	serviceID, err := parseUintParam(ctx.Param("id"))
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid service id"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid service id"})
 		return
 	}
 
@@ -58,40 +57,39 @@ func (h *Handler) GetServiceAPI(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"status": "success",
-		"data":   toServiceSerializer(service),
+		"data": toServiceSerializer(service),
 	})
 }
 
 func (h *Handler) CreateServiceAPI(ctx *gin.Context) {
 	if err := ctx.Request.ParseMultipartForm(128 << 20); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "multipart form is invalid"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "multipart form is invalid"})
 		return
 	}
 
 	unitPrice, err := parseRequiredFloat(ctx.PostForm("unit_price"), "unit_price")
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": err.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
 	cuRef, err := parseRequiredFloat(ctx.PostForm("cu_reference"), "cu_reference")
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": err.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
 	znRef, err := parseRequiredFloat(ctx.PostForm("zn_reference"), "zn_reference")
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": err.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
 	snRef, err := parseRequiredFloat(ctx.PostForm("sn_reference"), "sn_reference")
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": err.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
 	pbRef, err := parseRequiredFloat(ctx.PostForm("pb_reference"), "pb_reference")
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": err.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
 
@@ -106,7 +104,7 @@ func (h *Handler) CreateServiceAPI(ctx *gin.Context) {
 		imageFileName = &name
 		imageURL = &url
 	} else if fileErr != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": fileErr.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": fileErr.Error()})
 		return
 	}
 
@@ -121,7 +119,7 @@ func (h *Handler) CreateServiceAPI(ctx *gin.Context) {
 		videoFileName = &name
 		videoURL = &url
 	} else if fileErr != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": fileErr.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": fileErr.Error()})
 		return
 	}
 
@@ -146,7 +144,6 @@ func (h *Handler) CreateServiceAPI(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusCreated, gin.H{
-		"status":  "success",
 		"message": "service created",
 		"data":    toServiceSerializer(*service),
 	})
@@ -157,11 +154,11 @@ func (h *Handler) AddServiceToDraftAPI(ctx *gin.Context) {
 		ServiceID uint `json:"service_id"`
 	}{}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid JSON body"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid JSON body"})
 		return
 	}
 	if body.ServiceID == 0 {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "service_id is required"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "service_id is required"})
 		return
 	}
 
@@ -172,7 +169,6 @@ func (h *Handler) AddServiceToDraftAPI(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusCreated, gin.H{
-		"status": "success",
 		"data": gin.H{
 			"claim_id":   claim.ID,
 			"claim_code": claim.ClaimCode,
@@ -186,7 +182,7 @@ func (h *Handler) AddServiceToDraftAPI(ctx *gin.Context) {
 func (h *Handler) UpdateDraftMatchAPI(ctx *gin.Context) {
 	serviceID, err := parseUintParam(ctx.Param("service_id"))
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid service id"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid service id"})
 		return
 	}
 
@@ -196,7 +192,7 @@ func (h *Handler) UpdateDraftMatchAPI(ctx *gin.Context) {
 		MatchValue *float64 `json:"match_value"`
 	}{}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid JSON body"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid JSON body"})
 		return
 	}
 
@@ -211,7 +207,6 @@ func (h *Handler) UpdateDraftMatchAPI(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"status": "success",
 		"data": gin.H{
 			"id":          match.ID,
 			"claim_id":    match.ClaimID,
@@ -226,7 +221,7 @@ func (h *Handler) UpdateDraftMatchAPI(ctx *gin.Context) {
 func (h *Handler) DeleteDraftMatchAPI(ctx *gin.Context) {
 	serviceID, err := parseUintParam(ctx.Param("service_id"))
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid service id"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid service id"})
 		return
 	}
 
@@ -236,7 +231,6 @@ func (h *Handler) DeleteDraftMatchAPI(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"status":  "success",
 		"message": "service removed from draft claim",
 	})
 }
@@ -249,15 +243,14 @@ func (h *Handler) GetCartIconAPI(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"status": "success",
-		"data":   toCartSerializer(card),
+		"data": toCartSerializer(card),
 	})
 }
 
 func (h *Handler) GetClaimsAPI(ctx *gin.Context) {
 	filters, err := parseClaimFilters(ctx)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": err.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
 
@@ -273,15 +266,14 @@ func (h *Handler) GetClaimsAPI(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"status": "success",
-		"data":   result,
+		"data": result,
 	})
 }
 
 func (h *Handler) GetClaimAPI(ctx *gin.Context) {
 	claimID, err := parseUintParam(ctx.Param("id"))
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid claim id"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid claim id"})
 		return
 	}
 
@@ -292,15 +284,14 @@ func (h *Handler) GetClaimAPI(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"status": "success",
-		"data":   toClaimSerializer(details),
+		"data": toClaimSerializer(details),
 	})
 }
 
 func (h *Handler) UpdateDraftClaimAPI(ctx *gin.Context) {
 	claimID, err := parseUintParam(ctx.Param("id"))
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid claim id"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid claim id"})
 		return
 	}
 
@@ -315,7 +306,7 @@ func (h *Handler) UpdateDraftClaimAPI(ctx *gin.Context) {
 		PbMeasured      *float64 `json:"pb_measured"`
 	}{}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid JSON body"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid JSON body"})
 		return
 	}
 
@@ -335,7 +326,6 @@ func (h *Handler) UpdateDraftClaimAPI(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"status":  "success",
 		"message": "draft claim updated",
 	})
 }
@@ -343,7 +333,7 @@ func (h *Handler) UpdateDraftClaimAPI(ctx *gin.Context) {
 func (h *Handler) FormClaimAPI(ctx *gin.Context) {
 	claimID, err := parseUintParam(ctx.Param("id"))
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid claim id"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid claim id"})
 		return
 	}
 
@@ -354,7 +344,6 @@ func (h *Handler) FormClaimAPI(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"status": "success",
 		"data": gin.H{
 			"id":                        claim.ID,
 			"claim_code":                claim.ClaimCode,
@@ -370,7 +359,7 @@ func (h *Handler) FormClaimAPI(ctx *gin.Context) {
 func (h *Handler) ModerateClaimAPI(ctx *gin.Context) {
 	claimID, err := parseUintParam(ctx.Param("id"))
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid claim id"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid claim id"})
 		return
 	}
 
@@ -378,7 +367,7 @@ func (h *Handler) ModerateClaimAPI(ctx *gin.Context) {
 		Action string `json:"action"`
 	}{}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid JSON body"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid JSON body"})
 		return
 	}
 
@@ -389,7 +378,6 @@ func (h *Handler) ModerateClaimAPI(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"status": "success",
 		"data": gin.H{
 			"id":           claim.ID,
 			"claim_code":   claim.ClaimCode,
@@ -403,7 +391,7 @@ func (h *Handler) ModerateClaimAPI(ctx *gin.Context) {
 func (h *Handler) DeleteDraftClaimAPI(ctx *gin.Context) {
 	claimID, err := parseUintParam(ctx.Param("id"))
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid claim id"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid claim id"})
 		return
 	}
 
@@ -413,7 +401,6 @@ func (h *Handler) DeleteDraftClaimAPI(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"status":  "success",
 		"message": "draft claim deleted",
 	})
 }
@@ -425,7 +412,7 @@ func (h *Handler) RegisterUserAPI(ctx *gin.Context) {
 		Password string `json:"password"`
 	}{}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid JSON body"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid JSON body"})
 		return
 	}
 
@@ -440,8 +427,7 @@ func (h *Handler) RegisterUserAPI(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusCreated, gin.H{
-		"status": "success",
-		"data":   toUserSerializer(user),
+		"data": toUserSerializer(user),
 	})
 }
 
@@ -451,7 +437,7 @@ func (h *Handler) AuthStubAPI(ctx *gin.Context) {
 		Password string `json:"password"`
 	}{}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "invalid JSON body"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid JSON body"})
 		return
 	}
 
@@ -465,7 +451,6 @@ func (h *Handler) AuthStubAPI(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"status": "success",
 		"data": gin.H{
 			"token":      auth.Token,
 			"expires_at": auth.ExpiresAt,
@@ -475,7 +460,6 @@ func (h *Handler) AuthStubAPI(ctx *gin.Context) {
 
 func (h *Handler) LogoutStubAPI(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{
-		"status":  "success",
 		"message": "logout stub completed",
 	})
 }
@@ -483,13 +467,13 @@ func (h *Handler) LogoutStubAPI(ctx *gin.Context) {
 func (h *Handler) handleRepoError(ctx *gin.Context, err error) {
 	switch {
 	case errors.Is(err, gorm.ErrRecordNotFound):
-		ctx.JSON(http.StatusNotFound, gin.H{"status": "error", "message": err.Error()})
+		ctx.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
 	case errors.Is(err, repository.ErrValidation):
-		ctx.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": err.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 	case errors.Is(err, repository.ErrInvalidTransition):
-		ctx.JSON(http.StatusConflict, gin.H{"status": "error", "message": err.Error()})
+		ctx.JSON(http.StatusConflict, gin.H{"message": err.Error()})
 	default:
-		ctx.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": err.Error()})
+		ctx.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 	}
 }
 

@@ -25,7 +25,6 @@ var (
 	usersRef  *Users
 )
 
-// CurrentUsers returns singleton of fixed users used before auth lab.
 func CurrentUsers() *Users {
 	usersOnce.Do(func() {
 		usersRef = &Users{
