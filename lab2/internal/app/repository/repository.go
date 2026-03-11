@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -148,7 +149,7 @@ func (r *Repository) GetDraftCard(creatorID uint) (*DraftCard, error) {
 	}
 
 	return &DraftCard{
-		ClaimCode:    claim.ClaimCode,
+		ClaimCode:    strconv.FormatUint(uint64(claim.ID), 10),
 		ServiceCount: total,
 	}, nil
 }
@@ -168,7 +169,7 @@ func (r *Repository) AddServiceToDraft(creatorID uint, serviceSlug string) (stri
 		if claimErr != nil {
 			return claimErr
 		}
-		claimCode = claim.ClaimCode
+		claimCode = strconv.FormatUint(uint64(claim.ID), 10)
 
 		var link model.ClaimAlloyMatch
 		linkErr := tx.
@@ -222,11 +223,13 @@ func (r *Repository) AddServiceToDraft(creatorID uint, serviceSlug string) (stri
 
 func (r *Repository) GetClaimByCode(creatorID uint, claimCode string) (*ClaimDetails, error) {
 	var claim model.ArtifactClaim
-	err := r.db.
+	query := r.db.
 		Preload("Creator").
 		Preload("Moderator").
-		Where("claim_code = ? AND creator_id = ? AND status <> ?", claimCode, creatorID, model.ClaimStatusDeleted).
-		First(&claim).Error
+		Where("creator_id = ? AND status <> ?", creatorID, model.ClaimStatusDeleted)
+	query = applyClaimIdentifierFilter(query, claimCode)
+
+	err := query.First(&claim).Error
 	if err != nil {
 		return nil, err
 	}
@@ -274,15 +277,16 @@ func (r *Repository) UpdateClaimInputData(
 		return nil
 	}
 
-	tx := r.db.
-		Model(&model.ArtifactClaim{}).
-		Where(
-			"claim_code = ? AND creator_id = ? AND status <> ?",
-			claimCode,
-			creatorID,
-			model.ClaimStatusDeleted,
-		).
-		Updates(updates)
+	tx := applyClaimIdentifierFilter(
+		r.db.
+			Model(&model.ArtifactClaim{}).
+			Where(
+				"creator_id = ? AND status <> ?",
+				creatorID,
+				model.ClaimStatusDeleted,
+			),
+		claimCode,
+	).Updates(updates)
 	if tx.Error != nil {
 		return fmt.Errorf("update claim input: %w", tx.Error)
 	}
@@ -294,18 +298,19 @@ func (r *Repository) UpdateClaimInputData(
 }
 
 func (r *Repository) SubmitDraftClaimORM(creatorID uint, claimCode string) error {
-	tx := r.db.
-		Model(&model.ArtifactClaim{}).
-		Where(
-			"claim_code = ? AND creator_id = ? AND status = ?",
-			claimCode,
-			creatorID,
-			model.ClaimStatusDraft,
-		).
-		Updates(map[string]any{
-			"status":    model.ClaimStatusFormed,
-			"formed_at": time.Now(),
-		})
+	tx := applyClaimIdentifierFilter(
+		r.db.
+			Model(&model.ArtifactClaim{}).
+			Where(
+				"creator_id = ? AND status = ?",
+				creatorID,
+				model.ClaimStatusDraft,
+			),
+		claimCode,
+	).Updates(map[string]any{
+		"status":    model.ClaimStatusFormed,
+		"formed_at": time.Now(),
+	})
 	if tx.Error != nil {
 		return fmt.Errorf("submit claim: %w", tx.Error)
 	}
@@ -317,10 +322,11 @@ func (r *Repository) SubmitDraftClaimORM(creatorID uint, claimCode string) error
 }
 
 func (r *Repository) SoftDeleteDraftClaimSQL(creatorID uint, claimCode string) error {
+	claimID := parseClaimIdentifierID(claimCode)
 	query := `
 		UPDATE artifact_claims
 		SET status = ?
-		WHERE claim_code = ?
+		WHERE (claim_code = ? OR id = ?)
 		  AND creator_id = ?
 		  AND status = ?
 	`
@@ -329,6 +335,7 @@ func (r *Repository) SoftDeleteDraftClaimSQL(creatorID uint, claimCode string) e
 		query,
 		model.ClaimStatusDeleted,
 		claimCode,
+		claimID,
 		creatorID,
 		model.ClaimStatusDraft,
 	)
@@ -559,9 +566,13 @@ func (r *Repository) findOrCreateDraftClaim(tx *gorm.DB, creatorID uint) (*model
 	origin := "Не указано"
 	analyzer := "Olympus Vanta"
 	operatorComment := "Комментарий оператора отсутствует"
+	claimCode, codeErr := generateClaimCode(tx)
+	if codeErr != nil {
+		return nil, codeErr
+	}
 
 	claim = model.ArtifactClaim{
-		ClaimCode:       generateClaimCode(),
+		ClaimCode:       claimCode,
 		Status:          model.ClaimStatusDraft,
 		CreatorID:       creatorID,
 		ArtifactTitle:   &title,
@@ -707,8 +718,37 @@ func valueOrZero(v *float64) float64 {
 	return *v
 }
 
-func generateClaimCode() string {
-	return fmt.Sprintf("claim-%d", time.Now().UnixNano())
+func applyClaimIdentifierFilter(query *gorm.DB, claimIdentifier string) *gorm.DB {
+	claimID := parseClaimIdentifierID(claimIdentifier)
+	if claimID > 0 {
+		return query.Where("(claim_code = ? OR id = ?)", claimIdentifier, claimID)
+	}
+
+	return query.Where("claim_code = ?", claimIdentifier)
+}
+
+func parseClaimIdentifierID(claimIdentifier string) uint {
+	id, err := strconv.ParseUint(strings.TrimSpace(claimIdentifier), 10, 64)
+	if err != nil || id == 0 {
+		return 0
+	}
+
+	return uint(id)
+}
+
+func generateClaimCode(tx *gorm.DB) (string, error) {
+	var nextCode int64
+	if err := tx.
+		Raw(`
+			SELECT COALESCE(MAX(claim_code::bigint), 0) + 1
+			FROM artifact_claims
+			WHERE claim_code ~ '^[0-9]+$'
+		`).
+		Scan(&nextCode).Error; err != nil {
+		return "", fmt.Errorf("next claim code: %w", err)
+	}
+
+	return strconv.FormatInt(nextCode, 10), nil
 }
 
 func mediaURL(objectKey string) string {

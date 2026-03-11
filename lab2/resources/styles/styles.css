@@ -112,7 +112,7 @@ td {
 
 .list-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 120px;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
   gap: 12px;
   margin-bottom: 18px;
 }
@@ -148,6 +148,8 @@ td {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  text-align: center;
+  padding: 10px;
   gap: 4px;
   background: var(--card);
   border: 1px solid var(--line);
@@ -180,7 +182,8 @@ td {
 }
 
 .service-card {
-  display: block;
+  display: flex;
+  flex-direction: column;
   background: var(--card);
   border: 1px solid var(--line);
   transition: transform 0.2s ease, background 0.2s ease;
@@ -188,6 +191,7 @@ td {
 
 .service-card > a {
   display: block;
+  flex: 1 1 auto;
 }
 
 .service-card:hover {
@@ -291,12 +295,18 @@ button.chip:disabled {
 }
 
 .detail-page {
-  max-width: 900px;
+  max-width: 980px;
+}
+
+.vibes-portrait-xl {
+  --detail-media-width: 980px;
+  --detail-media-ratio: 4 / 3;
 }
 
 .vibes-portrait {
   position: relative;
   width: min(100%, var(--detail-media-width));
+  height: 840px;
   aspect-ratio: var(--detail-media-ratio);
   margin: 0 auto 18px auto;
   border: 1px solid var(--line);
@@ -332,6 +342,45 @@ button.chip:disabled {
   color: #e0e0e0;
   margin-bottom: 3px;
   overflow-wrap: anywhere;
+}
+
+.vibes-overlay-detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.overlay-table-wrap {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.overlay-table-wrap .section-title {
+  margin-bottom: 8px;
+  font-size: 16px;
+}
+
+.table-overlay {
+  min-width: 340px;
+}
+
+.table-overlay th,
+.table-overlay td {
+  font-size: 12px;
+  padding: 7px;
+}
+
+.overlay-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.overlay-actions .add-form {
+  margin-top: 0;
 }
 
 .detail-block {
@@ -407,7 +456,7 @@ button.chip:disabled {
 .rows-header,
 .claim-row {
   display: grid;
-  grid-template-columns: 86px 1.1fr 1fr 1fr 1.1fr;
+  grid-template-columns: 86px 1.2fr 0.8fr 1.3fr;
   gap: 10px;
   align-items: center;
 }
@@ -483,6 +532,18 @@ button.chip:disabled {
   margin-top: 12px;
 }
 
+.detail-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.detail-actions .add-form {
+  margin-top: 0;
+}
+
 .action-row {
   display: flex;
   flex-wrap: wrap;
@@ -505,8 +566,17 @@ button.chip:disabled {
   font-size: 12px;
 }
 
+.rows-header > div,
+.claim-row > div {
+  min-width: 0;
+}
+
 @media (max-width: 900px) {
   .list-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .vibes-overlay-detail {
     grid-template-columns: 1fr;
   }
 
@@ -525,5 +595,13 @@ button.chip:disabled {
   .claim-thumb {
     width: 100%;
     height: 180px;
+  }
+
+  .detail-actions {
+    align-items: stretch;
+  }
+
+  .overlay-actions {
+    align-items: stretch;
   }
 }

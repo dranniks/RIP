@@ -22,13 +22,22 @@ func StartServer() {
 	r.LoadHTMLGlob("templates/*")
 	r.Static("/styles", "./resources/styles")
 
-	// 3 GET routes.
+	// Services.
 	r.GET("/services", h.GetServices)
 	r.GET("/services/:slug", h.GetService)
-	r.GET("/claims/:code", h.GetClaim)
 
-	// 2 POST routes.
+	// Claims (canonical routes used by templates).
+	r.GET("/artifact_claims", h.GetClaim)
+	r.GET("/artifact_claims/:code", h.GetClaim)
+	r.POST("/artifact_claims/add-service", h.AddServiceToDraft)
+	r.POST("/artifact_claims/delete", h.DeleteDraftClaim)
+	r.POST("/artifact_claims/:code/delete", h.DeleteDraftClaim)
+
+	// Legacy aliases kept for backward compatibility.
+	r.GET("/claims", h.GetClaim)
+	r.GET("/claims/:code", h.GetClaim)
 	r.POST("/claims/add-service", h.AddServiceToDraft)
+	r.POST("/claims/delete", h.DeleteDraftClaim)
 	r.POST("/claims/:code/delete", h.DeleteDraftClaim)
 
 	if runErr := r.Run(":8080"); runErr != nil {

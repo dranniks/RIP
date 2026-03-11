@@ -42,11 +42,12 @@ func (h *Handler) GetServices(ctx *gin.Context) {
 	}
 
 	ctx.HTML(http.StatusOK, "index.html", gin.H{
-		"Services": services,
-		"Draft":    draft,
-		"Query":    searchQuery,
-		"Added":    ctx.Query("added") == "1",
-		"Deleted":  ctx.Query("deleted") == "1",
+		"Services":         services,
+		"Draft":            draft,
+		"Query":            searchQuery,
+		"Added":            ctx.Query("added") == "1",
+		"Deleted":          ctx.Query("deleted") == "1",
+		"ClaimUnavailable": ctx.Query("claim_unavailable") == "1",
 	})
 }
 
@@ -75,7 +76,15 @@ func (h *Handler) GetService(ctx *gin.Context) {
 }
 
 func (h *Handler) GetClaim(ctx *gin.Context) {
-	claimCode := strings.TrimSpace(ctx.Param("code"))
+	claimCode := firstNonEmpty(
+		ctx.Param("code"),
+		ctx.Query("claim_code"),
+		ctx.Query("code"),
+	)
+	if claimCode == "" {
+		redirectClaimUnavailable(ctx)
+		return
+	}
 
 	action := strings.TrimSpace(ctx.Query("action"))
 	if action != "" {
@@ -87,7 +96,7 @@ func (h *Handler) GetClaim(ctx *gin.Context) {
 
 		if updateErr := h.Repository.UpdateClaimInputData(currentUserID, claimCode, updates); updateErr != nil {
 			if errors.Is(updateErr, gorm.ErrRecordNotFound) {
-				ctx.String(http.StatusNotFound, "claim not found")
+				redirectClaimUnavailable(ctx)
 				return
 			}
 			ctx.String(http.StatusInternalServerError, "cannot update claim: %v", updateErr)
@@ -97,24 +106,24 @@ func (h *Handler) GetClaim(ctx *gin.Context) {
 		if action == "submit" {
 			if submitErr := h.Repository.SubmitDraftClaimORM(currentUserID, claimCode); submitErr != nil {
 				if errors.Is(submitErr, gorm.ErrRecordNotFound) {
-					ctx.String(http.StatusNotFound, "draft claim not found")
+					redirectClaimUnavailable(ctx)
 					return
 				}
 				ctx.String(http.StatusInternalServerError, "cannot submit claim: %v", submitErr)
 				return
 			}
 
-			ctx.Redirect(http.StatusFound, "/claims/"+claimCode+"?submitted=1")
+			ctx.Redirect(http.StatusFound, "/artifact_claims/"+claimCode+"?submitted=1")
 			return
 		}
 
-		ctx.Redirect(http.StatusFound, "/claims/"+claimCode+"?calculated=1")
+		ctx.Redirect(http.StatusFound, "/artifact_claims/"+claimCode+"?calculated=1")
 		return
 	}
 
 	details, err := h.Repository.GetClaimByCode(currentUserID, claimCode)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		ctx.String(http.StatusNotFound, "claim not found")
+		redirectClaimUnavailable(ctx)
 		return
 	}
 	if err != nil {
@@ -124,6 +133,7 @@ func (h *Handler) GetClaim(ctx *gin.Context) {
 
 	ctx.HTML(http.StatusOK, "claim.html", gin.H{
 		"Claim":         details.Claim,
+		"ClaimPathCode": strconv.FormatUint(uint64(details.Claim.ID), 10),
 		"Rows":          details.Rows,
 		"TotalServices": details.TotalServices,
 		"Formula":       details.Formula,
@@ -159,7 +169,11 @@ func (h *Handler) AddServiceToDraft(ctx *gin.Context) {
 }
 
 func (h *Handler) DeleteDraftClaim(ctx *gin.Context) {
-	claimCode := strings.TrimSpace(ctx.Param("code"))
+	claimCode := firstNonEmpty(
+		ctx.Param("code"),
+		ctx.PostForm("claim_code"),
+		ctx.PostForm("code"),
+	)
 	if claimCode == "" {
 		ctx.String(http.StatusBadRequest, "claim code is required")
 		return
@@ -275,4 +289,19 @@ func formatFloat(value *float64) string {
 	formatted = strings.TrimRight(formatted, "0")
 	formatted = strings.TrimRight(formatted, ".")
 	return formatted
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+
+	return ""
+}
+
+func redirectClaimUnavailable(ctx *gin.Context) {
+	ctx.Redirect(http.StatusFound, "/services?claim_unavailable=1")
 }
