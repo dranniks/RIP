@@ -299,14 +299,14 @@ button.chip:disabled {
 }
 
 .vibes-portrait-xl {
-  --detail-media-width: 980px;
+  --detail-media-width: 820px;
   --detail-media-ratio: 4 / 3;
 }
 
 .vibes-portrait {
   position: relative;
   width: min(100%, var(--detail-media-width));
-  height: 840px;
+  height: 780px;
   aspect-ratio: var(--detail-media-ratio);
   margin: 0 auto 18px auto;
   border: 1px solid var(--line);
@@ -334,20 +334,23 @@ button.chip:disabled {
 
 .vibes-overlay h2 {
   margin-bottom: 6px;
-  font-size: 19px;
+  font-size: 28px;
 }
 
 .vibes-overlay p {
-  font-size: 12px;
+  font-size: 18px;
   color: #e0e0e0;
   margin-bottom: 3px;
   overflow-wrap: anywhere;
 }
 
 .vibes-overlay-detail {
+  top: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 12px;
+  align-content: end;
+  gap: 6px;
+  padding: 8px 10px 2px;
 }
 
 .overlay-table-wrap {
@@ -357,30 +360,45 @@ button.chip:disabled {
 
 .overlay-table-wrap .section-title {
   margin-bottom: 8px;
-  font-size: 16px;
+  font-size: 22px;
 }
 
 .table-overlay {
   min-width: 340px;
 }
 
-.table-overlay th,
-.table-overlay td {
-  font-size: 12px;
+.table.table-overlay th,
+.table.table-overlay td {
+  font-size: 15px;
   padding: 7px;
 }
 
+.overlay-actions .chip {
+  font-size: 17px;
+}
+
+.overlay-actions .small {
+  display: none;
+}
+
 .overlay-actions {
-  grid-column: 1 / -1;
+  position: absolute;
+  right: 10px;
+  bottom: 2px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 6px;
 }
 
 .overlay-actions .add-form {
+  margin-left: 0;
   margin-top: 0;
+}
+
+.overlay-actions button.chip {
+  border-radius: 0px !important;
 }
 
 .detail-block {
