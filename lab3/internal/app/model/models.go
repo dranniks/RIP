@@ -64,9 +64,6 @@ type ArtifactClaim struct {
 	CompletedAt             *time.Time
 	ModeratorID             *uint
 	Moderator               *User    `gorm:"foreignKey:ModeratorID;constraint:OnUpdate:RESTRICT,OnDelete:RESTRICT;"`
-	ArtifactTitle           *string  `gorm:"size:180"`
-	ArtifactOrigin          *string  `gorm:"size:180"`
-	AnalyzerModel           *string  `gorm:"size:120"`
 	OperatorComment         *string  `gorm:"size:255"`
 	CuMeasured              *float64 `gorm:"type:numeric(6,3)"`
 	ZnMeasured              *float64 `gorm:"type:numeric(6,3)"`
@@ -75,7 +72,6 @@ type ArtifactClaim struct {
 	BestMatchLabel          *string  `gorm:"size:180"`
 	CompletionFormulaResult *float64 `gorm:"type:numeric(8,2)"`
 	TotalCost               *float64 `gorm:"type:numeric(12,2)"`
-	PlannedDeliveryAt       *time.Time
 }
 
 func (ArtifactClaim) TableName() string {
@@ -83,18 +79,13 @@ func (ArtifactClaim) TableName() string {
 }
 
 type ClaimAlloyMatch struct {
-	ID                uint                  `gorm:"primaryKey"`
-	ClaimID           uint                  `gorm:"not null;uniqueIndex:ux_claim_service,priority:1;index"`
-	Claim             ArtifactClaim         `gorm:"foreignKey:ClaimID;constraint:OnUpdate:RESTRICT,OnDelete:RESTRICT;"`
-	ServiceID         uint                  `gorm:"not null;uniqueIndex:ux_claim_service,priority:2;index"`
-	Service           ReferenceAlloyService `gorm:"foreignKey:ServiceID;constraint:OnUpdate:RESTRICT,OnDelete:RESTRICT;"`
-	Quantity          int                   `gorm:"not null;default:1"`
-	SortOrder         int                   `gorm:"not null;default:0"`
-	MatchValue        *float64              `gorm:"type:numeric(10,3)"`
-	CompositionResult *string               `gorm:"size:255"`
-	MatchScore        *float64              `gorm:"type:numeric(8,2)"`
-	CreatedAt         time.Time             `gorm:"not null;default:CURRENT_TIMESTAMP"`
-	UpdatedAt         time.Time             `gorm:"not null;default:CURRENT_TIMESTAMP"`
+	ClaimID     uint                  `gorm:"primaryKey;not null;index"`
+	Claim       ArtifactClaim         `gorm:"foreignKey:ClaimID;constraint:OnUpdate:RESTRICT,OnDelete:RESTRICT;"`
+	ServiceID   uint                  `gorm:"primaryKey;not null;index"`
+	Service     ReferenceAlloyService `gorm:"foreignKey:ServiceID;constraint:OnUpdate:RESTRICT,OnDelete:RESTRICT;"`
+	Quantity    int                   `gorm:"not null;default:1"`
+	SortOrder   int                   `gorm:"not null;default:0"`
+	ResultValue *float64              `gorm:"type:numeric(10,3)"`
 }
 
 func (ClaimAlloyMatch) TableName() string {

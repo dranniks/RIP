@@ -3,7 +3,6 @@ package repository
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"gorm.io/gorm"
 
@@ -22,8 +21,11 @@ type AuthInput struct {
 }
 
 type AuthResult struct {
-	Token     string
-	ExpiresAt time.Time
+	UserID        uint
+	Login         string
+	Role          string
+	Authenticated bool
+	AuthMode      string
 }
 
 func (r *Repository) RegisterUser(input RegisterUserInput) (*model.User, error) {
@@ -81,9 +83,11 @@ func (r *Repository) AuthenticateStub(input AuthInput) (*AuthResult, error) {
 		return nil, fmt.Errorf("%w: invalid credentials", ErrValidation)
 	}
 
-	expires := time.Now().Add(2 * time.Hour)
 	return &AuthResult{
-		Token:     fmt.Sprintf("stub-token-%d-%d", user.ID, expires.Unix()),
-		ExpiresAt: expires,
+		UserID:        user.ID,
+		Login:         user.Login,
+		Role:          user.Role,
+		Authenticated: true,
+		AuthMode:      "stub-singleton-no-token",
 	}, nil
 }

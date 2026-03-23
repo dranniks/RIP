@@ -41,9 +41,6 @@ CREATE TABLE IF NOT EXISTS artifact_claims (
     formed_at TIMESTAMP NULL,
     completed_at TIMESTAMP NULL,
     moderator_id BIGINT NULL,
-    artifact_title VARCHAR(180) NULL,
-    artifact_origin VARCHAR(180) NULL,
-    analyzer_model VARCHAR(120) NULL,
     operator_comment VARCHAR(255) NULL,
     cu_measured NUMERIC(6,3) NULL,
     zn_measured NUMERIC(6,3) NULL,
@@ -52,7 +49,6 @@ CREATE TABLE IF NOT EXISTS artifact_claims (
     best_match_label VARCHAR(180) NULL,
     completion_formula_result NUMERIC(8,2) NULL,
     total_cost NUMERIC(12,2) NULL,
-    planned_delivery_at TIMESTAMP NULL,
     CONSTRAINT fk_claim_creator FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_claim_moderator FOREIGN KEY (moderator_id) REFERENCES users(id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT ck_artifact_claims_status CHECK (status IN ('черновик', 'удален', 'сформирован', 'завершен', 'отклонен'))
@@ -63,17 +59,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_claim_draft_per_creator
     WHERE status = 'черновик';
 
 CREATE TABLE IF NOT EXISTS claim_alloy_matches (
-    id BIGSERIAL PRIMARY KEY,
     claim_id BIGINT NOT NULL,
     service_id BIGINT NOT NULL,
     quantity INTEGER NOT NULL DEFAULT 1,
     sort_order INTEGER NOT NULL DEFAULT 0,
-    match_value NUMERIC(10,3) NULL,
-    composition_result VARCHAR(255) NULL,
-    match_score NUMERIC(8,2) NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    result_value NUMERIC(10,3) NULL,
     CONSTRAINT fk_match_claim FOREIGN KEY (claim_id) REFERENCES artifact_claims(id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_match_service FOREIGN KEY (service_id) REFERENCES reference_alloy_services(id) ON DELETE RESTRICT ON UPDATE RESTRICT,
-    CONSTRAINT ux_claim_service UNIQUE (claim_id, service_id)
+    CONSTRAINT ck_claim_alloy_matches_quantity CHECK (quantity > 0),
+    CONSTRAINT ck_claim_alloy_matches_sort_order CHECK (sort_order >= 0),
+    CONSTRAINT pk_claim_service PRIMARY KEY (claim_id, service_id)
 );

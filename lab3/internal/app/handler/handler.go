@@ -187,9 +187,8 @@ func (h *Handler) UpdateDraftMatchAPI(ctx *gin.Context) {
 	}
 
 	body := struct {
-		Quantity   *int     `json:"quantity"`
-		SortOrder  *int     `json:"sort_order"`
-		MatchValue *float64 `json:"match_value"`
+		Quantity  *int `json:"quantity"`
+		SortOrder *int `json:"sort_order"`
 	}{}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid JSON body"})
@@ -197,9 +196,8 @@ func (h *Handler) UpdateDraftMatchAPI(ctx *gin.Context) {
 	}
 
 	match, err := h.Repository.UpdateDraftMatch(creatorID(), serviceID, repository.MatchUpdateInput{
-		Quantity:   body.Quantity,
-		SortOrder:  body.SortOrder,
-		MatchValue: body.MatchValue,
+		Quantity:  body.Quantity,
+		SortOrder: body.SortOrder,
 	})
 	if err != nil {
 		h.handleRepoError(ctx, err)
@@ -208,12 +206,10 @@ func (h *Handler) UpdateDraftMatchAPI(ctx *gin.Context) {
 
 	ctx.JSON(http.StatusOK, gin.H{
 		"data": gin.H{
-			"id":          match.ID,
-			"claim_id":    match.ClaimID,
-			"service_id":  match.ServiceID,
-			"quantity":    match.Quantity,
-			"sort_order":  match.SortOrder,
-			"match_value": match.MatchValue,
+			"claim_id":   match.ClaimID,
+			"service_id": match.ServiceID,
+			"quantity":   match.Quantity,
+			"sort_order": match.SortOrder,
 		},
 	})
 }
@@ -296,9 +292,6 @@ func (h *Handler) UpdateDraftClaimAPI(ctx *gin.Context) {
 	}
 
 	body := struct {
-		ArtifactTitle   *string  `json:"artifact_title"`
-		ArtifactOrigin  *string  `json:"artifact_origin"`
-		AnalyzerModel   *string  `json:"analyzer_model"`
 		OperatorComment *string  `json:"operator_comment"`
 		CuMeasured      *float64 `json:"cu_measured"`
 		ZnMeasured      *float64 `json:"zn_measured"`
@@ -311,9 +304,6 @@ func (h *Handler) UpdateDraftClaimAPI(ctx *gin.Context) {
 	}
 
 	err = h.Repository.UpdateDraftClaimFields(creatorID(), claimID, repository.ClaimUpdateInput{
-		ArtifactTitle:   body.ArtifactTitle,
-		ArtifactOrigin:  body.ArtifactOrigin,
-		AnalyzerModel:   body.AnalyzerModel,
 		OperatorComment: body.OperatorComment,
 		CuMeasured:      body.CuMeasured,
 		ZnMeasured:      body.ZnMeasured,
@@ -351,7 +341,6 @@ func (h *Handler) FormClaimAPI(ctx *gin.Context) {
 			"formed_at":                 claim.FormedAt,
 			"completion_formula_result": claim.CompletionFormulaResult,
 			"total_cost":                claim.TotalCost,
-			"planned_delivery_at":       claim.PlannedDeliveryAt,
 		},
 	})
 }
@@ -452,8 +441,11 @@ func (h *Handler) AuthStubAPI(ctx *gin.Context) {
 
 	ctx.JSON(http.StatusOK, gin.H{
 		"data": gin.H{
-			"token":      auth.Token,
-			"expires_at": auth.ExpiresAt,
+			"user_id":       auth.UserID,
+			"login":         auth.Login,
+			"role":          auth.Role,
+			"authenticated": auth.Authenticated,
+			"auth_mode":     auth.AuthMode,
 		},
 	})
 }

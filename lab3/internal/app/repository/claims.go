@@ -20,15 +20,11 @@ type CartIcon struct {
 }
 
 type MatchUpdateInput struct {
-	Quantity   *int
-	SortOrder  *int
-	MatchValue *float64
+	Quantity  *int
+	SortOrder *int
 }
 
 type ClaimUpdateInput struct {
-	ArtifactTitle   *string
-	ArtifactOrigin  *string
-	AnalyzerModel   *string
 	OperatorComment *string
 	CuMeasured      *float64
 	ZnMeasured      *float64
@@ -52,23 +48,21 @@ type ClaimListItem struct {
 	CreatorLogin            string
 	ModeratorLogin          *string
 	CompletionFormulaResult *float64
+	ResultValue             *float64
+	BestMatchLabel          *string
 	TotalCost               *float64
-	PlannedDeliveryAt       *time.Time
 	ResultItemsCount        int64
 }
 
 type ClaimServiceItem struct {
-	ID                uint
-	ServiceID         uint
-	ServiceSlug       string
-	ServiceName       string
-	ServiceImageURL   *string
-	ServiceVideoURL   *string
-	Quantity          int
-	SortOrder         int
-	MatchValue        *float64
-	CompositionResult *string
-	MatchScore        *float64
+	ServiceID       uint
+	ServiceSlug     string
+	ServiceName     string
+	ServiceImageURL *string
+	ServiceVideoURL *string
+	Quantity        int
+	SortOrder       int
+	ResultValue     *float64
 }
 
 type ClaimDetails struct {
@@ -125,10 +119,14 @@ func (r *Repository) AddServiceToDraft(creatorID uint, serviceID uint) (*model.A
 		}
 
 		match := model.ClaimAlloyMatch{}
-		matchErr := tx.
+		matchTx := tx.
 			Where("claim_id = ? AND service_id = ?", claim.ID, service.ID).
-			First(&match).Error
-		if errors.Is(matchErr, gorm.ErrRecordNotFound) {
+			Limit(1).
+			Find(&match)
+		if matchTx.Error != nil {
+			return fmt.Errorf("get claim-service row: %w", matchTx.Error)
+		}
+		if matchTx.RowsAffected == 0 {
 			maxSort := 0
 			if err := tx.
 				Model(&model.ClaimAlloyMatch{}).
@@ -147,8 +145,6 @@ func (r *Repository) AddServiceToDraft(creatorID uint, serviceID uint) (*model.A
 			if err := tx.Create(&match).Error; err != nil {
 				return fmt.Errorf("create claim-service row: %w", err)
 			}
-		} else if matchErr != nil {
-			return fmt.Errorf("get claim-service row: %w", matchErr)
 		} else {
 			match.Quantity++
 			if err := tx.Save(&match).Error; err != nil {
@@ -176,7 +172,7 @@ func (r *Repository) UpdateDraftMatch(
 
 	err := r.db.Transaction(func(tx *gorm.DB) error {
 		match := model.ClaimAlloyMatch{}
-		findErr := tx.
+		findTx := tx.
 			Joins("JOIN artifact_claims c ON c.id = claim_alloy_matches.claim_id").
 			Where(
 				"claim_alloy_matches.service_id = ? AND c.creator_id = ? AND c.status = ?",
@@ -184,9 +180,13 @@ func (r *Repository) UpdateDraftMatch(
 				creatorID,
 				model.ClaimStatusDraft,
 			).
-			First(&match).Error
-		if findErr != nil {
-			return findErr
+			Limit(1).
+			Find(&match)
+		if findTx.Error != nil {
+			return findTx.Error
+		}
+		if findTx.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
 		}
 
 		if input.Quantity != nil {
@@ -201,10 +201,6 @@ func (r *Repository) UpdateDraftMatch(
 			}
 			match.SortOrder = *input.SortOrder
 		}
-		if input.MatchValue != nil {
-			match.MatchValue = input.MatchValue
-		}
-
 		if saveErr := tx.Save(&match).Error; saveErr != nil {
 			return fmt.Errorf("save claim-service row: %w", saveErr)
 		}
@@ -245,8 +241,10 @@ func (r *Repository) ListClaims(filters ClaimFilters) ([]ClaimListItem, error) {
 		Select(
 			"c.id, c.claim_code, c.status, c.created_at, c.formed_at, c.completed_at, "+
 				"creator.login AS creator_login, moderator.login AS moderator_login, "+
-				"c.completion_formula_result, c.total_cost, c.planned_delivery_at, "+
-				"(SELECT COUNT(1) FROM claim_alloy_matches m WHERE m.claim_id = c.id AND COALESCE(m.composition_result, '') <> '') AS result_items_count",
+				"c.completion_formula_result, "+
+				"COALESCE(c.completion_formula_result, (SELECT ROUND(MAX(m.result_value), 2) FROM claim_alloy_matches m WHERE m.claim_id = c.id)) AS result_value, "+
+				"c.best_match_label, c.total_cost, "+
+				"(SELECT COUNT(1) FROM claim_alloy_matches m WHERE m.claim_id = c.id AND m.result_value IS NOT NULL) AS result_items_count",
 		).
 		Joins("JOIN users AS creator ON creator.id = c.creator_id").
 		Joins("LEFT JOIN users AS moderator ON moderator.id = c.moderator_id").
@@ -284,7 +282,7 @@ func (r *Repository) GetClaimDetails(claimID uint) (*ClaimDetails, error) {
 	if err := r.db.
 		Preload("Service").
 		Where("claim_id = ?", claim.ID).
-		Order("sort_order ASC, id ASC").
+		Order("sort_order ASC, service_id ASC").
 		Find(&links).Error; err != nil {
 		return nil, fmt.Errorf("load claim services: %w", err)
 	}
@@ -292,22 +290,19 @@ func (r *Repository) GetClaimDetails(claimID uint) (*ClaimDetails, error) {
 	services := make([]ClaimServiceItem, 0, len(links))
 	var resultCount int64
 	for _, link := range links {
-		if link.CompositionResult != nil && strings.TrimSpace(*link.CompositionResult) != "" {
+		if link.ResultValue != nil {
 			resultCount++
 		}
 
 		services = append(services, ClaimServiceItem{
-			ID:                link.ID,
-			ServiceID:         link.ServiceID,
-			ServiceSlug:       link.Service.Slug,
-			ServiceName:       link.Service.Name,
-			ServiceImageURL:   link.Service.ImageURL,
-			ServiceVideoURL:   link.Service.VideoURL,
-			Quantity:          link.Quantity,
-			SortOrder:         link.SortOrder,
-			MatchValue:        link.MatchValue,
-			CompositionResult: link.CompositionResult,
-			MatchScore:        link.MatchScore,
+			ServiceID:       link.ServiceID,
+			ServiceSlug:     link.Service.Slug,
+			ServiceName:     link.Service.Name,
+			ServiceImageURL: link.Service.ImageURL,
+			ServiceVideoURL: link.Service.VideoURL,
+			Quantity:        link.Quantity,
+			SortOrder:       link.SortOrder,
+			ResultValue:     link.ResultValue,
 		})
 	}
 
@@ -331,15 +326,6 @@ func (r *Repository) UpdateDraftClaimFields(
 ) error {
 	updates := map[string]any{}
 
-	if input.ArtifactTitle != nil {
-		updates["artifact_title"] = normalizeNullableString(*input.ArtifactTitle)
-	}
-	if input.ArtifactOrigin != nil {
-		updates["artifact_origin"] = normalizeNullableString(*input.ArtifactOrigin)
-	}
-	if input.AnalyzerModel != nil {
-		updates["analyzer_model"] = normalizeNullableString(*input.AnalyzerModel)
-	}
 	if input.OperatorComment != nil {
 		updates["operator_comment"] = normalizeNullableString(*input.OperatorComment)
 	}
@@ -388,7 +374,7 @@ func (r *Repository) FormDraftClaim(creatorID uint, claimID uint) (*model.Artifa
 		if err := tx.
 			Preload("Service").
 			Where("claim_id = ?", claim.ID).
-			Order("sort_order ASC, id ASC").
+			Order("sort_order ASC, service_id ASC").
 			Find(&matches).Error; err != nil {
 			return fmt.Errorf("load claim services for form: %w", err)
 		}
@@ -407,15 +393,14 @@ func (r *Repository) FormDraftClaim(creatorID uint, claimID uint) (*model.Artifa
 
 		for _, row := range matches {
 			composition := calculateCompositionFormula(claim, row.Service)
-			compositionResult := buildCompositionResult(composition)
 			score := calculateMatchScore(composition, row.Service)
-
-			row.CompositionResult = &compositionResult
-			row.MatchScore = &score
-			if err := tx.Model(&model.ClaimAlloyMatch{}).Where("id = ?", row.ID).Updates(map[string]any{
-				"composition_result": row.CompositionResult,
-				"match_score":        row.MatchScore,
-				"updated_at":         time.Now(),
+			row.ResultValue = &score
+			if err := tx.Model(&model.ClaimAlloyMatch{}).Where(
+				"claim_id = ? AND service_id = ?",
+				row.ClaimID,
+				row.ServiceID,
+			).Updates(map[string]any{
+				"result_value": row.ResultValue,
 			}).Error; err != nil {
 				return fmt.Errorf("update m-m result for service %d: %w", row.ServiceID, err)
 			}
@@ -433,11 +418,6 @@ func (r *Repository) FormDraftClaim(creatorID uint, claimID uint) (*model.Artifa
 		}
 
 		now := time.Now()
-		deliveryDays := 7 + totalQty
-		if deliveryDays > 30 {
-			deliveryDays = 30
-		}
-		planned := now.AddDate(0, 0, deliveryDays)
 		bestScore = round2(bestScore)
 		totalCost = round2(totalCost)
 
@@ -447,7 +427,6 @@ func (r *Repository) FormDraftClaim(creatorID uint, claimID uint) (*model.Artifa
 			"completion_formula_result": bestScore,
 			"best_match_label":          bestLabel,
 			"total_cost":                totalCost,
-			"planned_delivery_at":       planned,
 		}
 		if err := tx.Model(&model.ArtifactClaim{}).Where("id = ?", claim.ID).Updates(update).Error; err != nil {
 			return fmt.Errorf("set formed status: %w", err)
@@ -556,9 +535,6 @@ func normalizeNullableString(v string) any {
 }
 
 func validateMandatoryClaimFields(claim model.ArtifactClaim) error {
-	if claim.ArtifactTitle == nil || strings.TrimSpace(*claim.ArtifactTitle) == "" {
-		return fmt.Errorf("%w: artifact_title is required before form", ErrValidation)
-	}
 	if claim.OperatorComment == nil || strings.TrimSpace(*claim.OperatorComment) == "" {
 		return fmt.Errorf("%w: operator_comment is required before form", ErrValidation)
 	}
@@ -592,10 +568,6 @@ func calculateCompositionFormula(claim model.ArtifactClaim, service model.Refere
 		Sn: round2((snTerm / denominator) * 100),
 		Pb: round2((pbTerm / denominator) * 100),
 	}
-}
-
-func buildCompositionResult(v compositionVector) string {
-	return fmt.Sprintf("Cu %.2f%%, Zn %.2f%%, Sn %.2f%%, Pb %.2f%%", v.Cu, v.Zn, v.Sn, v.Pb)
 }
 
 func calculateMatchScore(composition compositionVector, service model.ReferenceAlloyService) float64 {

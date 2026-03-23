@@ -35,17 +35,14 @@ type cartSerializer struct {
 }
 
 type claimItemSerializer struct {
-	ID                uint     `json:"id"`
-	ServiceID         uint     `json:"service_id"`
-	ServiceSlug       string   `json:"service_slug"`
-	ServiceName       string   `json:"service_name"`
-	ServiceImageURL   *string  `json:"service_image_url"`
-	ServiceVideoURL   *string  `json:"service_video_url"`
-	Quantity          int      `json:"quantity"`
-	SortOrder         int      `json:"sort_order"`
-	MatchValue        *float64 `json:"match_value"`
-	CompositionResult *string  `json:"composition_result"`
-	MatchScore        *float64 `json:"match_score"`
+	ServiceID       uint     `json:"service_id"`
+	ServiceSlug     string   `json:"service_slug"`
+	ServiceName     string   `json:"service_name"`
+	ServiceImageURL *string  `json:"service_image_url"`
+	ServiceVideoURL *string  `json:"service_video_url"`
+	Quantity        int      `json:"quantity"`
+	SortOrder       int      `json:"sort_order"`
+	ResultValue     *float64 `json:"result_value"`
 }
 
 type claimSerializer struct {
@@ -57,9 +54,6 @@ type claimSerializer struct {
 	CompletedAt             *time.Time            `json:"completed_at"`
 	CreatorLogin            string                `json:"creator_login"`
 	ModeratorLogin          *string               `json:"moderator_login"`
-	ArtifactTitle           *string               `json:"artifact_title"`
-	ArtifactOrigin          *string               `json:"artifact_origin"`
-	AnalyzerModel           *string               `json:"analyzer_model"`
 	OperatorComment         *string               `json:"operator_comment"`
 	CuMeasured              *float64              `json:"cu_measured"`
 	ZnMeasured              *float64              `json:"zn_measured"`
@@ -68,7 +62,6 @@ type claimSerializer struct {
 	BestMatchLabel          *string               `json:"best_match_label"`
 	CompletionFormulaResult *float64              `json:"completion_formula_result"`
 	TotalCost               *float64              `json:"total_cost"`
-	PlannedDeliveryAt       *time.Time            `json:"planned_delivery_at"`
 	ResultItemsCount        int64                 `json:"result_items_count"`
 	Services                []claimItemSerializer `json:"services,omitempty"`
 }
@@ -83,8 +76,9 @@ type claimListSerializer struct {
 	CreatorLogin            string     `json:"creator_login"`
 	ModeratorLogin          *string    `json:"moderator_login"`
 	CompletionFormulaResult *float64   `json:"completion_formula_result"`
+	ResultValue             *float64   `json:"result_value"`
+	BestMatchLabel          *string    `json:"best_match_label"`
 	TotalCost               *float64   `json:"total_cost"`
-	PlannedDeliveryAt       *time.Time `json:"planned_delivery_at"`
 	ResultItemsCount        int64      `json:"result_items_count"`
 }
 
@@ -132,17 +126,14 @@ func toCartSerializer(card *repository.CartIcon) cartSerializer {
 
 func toClaimItemSerializer(item repository.ClaimServiceItem) claimItemSerializer {
 	return claimItemSerializer{
-		ID:                item.ID,
-		ServiceID:         item.ServiceID,
-		ServiceSlug:       item.ServiceSlug,
-		ServiceName:       item.ServiceName,
-		ServiceImageURL:   item.ServiceImageURL,
-		ServiceVideoURL:   item.ServiceVideoURL,
-		Quantity:          item.Quantity,
-		SortOrder:         item.SortOrder,
-		MatchValue:        item.MatchValue,
-		CompositionResult: item.CompositionResult,
-		MatchScore:        item.MatchScore,
+		ServiceID:       item.ServiceID,
+		ServiceSlug:     item.ServiceSlug,
+		ServiceName:     item.ServiceName,
+		ServiceImageURL: item.ServiceImageURL,
+		ServiceVideoURL: item.ServiceVideoURL,
+		Quantity:        item.Quantity,
+		SortOrder:       item.SortOrder,
+		ResultValue:     item.ResultValue,
 	}
 }
 
@@ -161,9 +152,6 @@ func toClaimSerializer(details *repository.ClaimDetails) claimSerializer {
 		CompletedAt:             details.Claim.CompletedAt,
 		CreatorLogin:            details.CreatorLogin,
 		ModeratorLogin:          details.ModeratorLogin,
-		ArtifactTitle:           details.Claim.ArtifactTitle,
-		ArtifactOrigin:          details.Claim.ArtifactOrigin,
-		AnalyzerModel:           details.Claim.AnalyzerModel,
 		OperatorComment:         details.Claim.OperatorComment,
 		CuMeasured:              details.Claim.CuMeasured,
 		ZnMeasured:              details.Claim.ZnMeasured,
@@ -172,7 +160,6 @@ func toClaimSerializer(details *repository.ClaimDetails) claimSerializer {
 		BestMatchLabel:          details.Claim.BestMatchLabel,
 		CompletionFormulaResult: details.Claim.CompletionFormulaResult,
 		TotalCost:               details.Claim.TotalCost,
-		PlannedDeliveryAt:       details.Claim.PlannedDeliveryAt,
 		ResultItemsCount:        details.ResultItemsCount,
 		Services:                services,
 	}
@@ -189,8 +176,9 @@ func toClaimListSerializer(row repository.ClaimListItem) claimListSerializer {
 		CreatorLogin:            row.CreatorLogin,
 		ModeratorLogin:          row.ModeratorLogin,
 		CompletionFormulaResult: row.CompletionFormulaResult,
+		ResultValue:             row.ResultValue,
+		BestMatchLabel:          row.BestMatchLabel,
 		TotalCost:               row.TotalCost,
-		PlannedDeliveryAt:       row.PlannedDeliveryAt,
 		ResultItemsCount:        row.ResultItemsCount,
 	}
 }

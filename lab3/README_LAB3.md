@@ -7,7 +7,7 @@
 - MinIO для загрузки файлов услуги (изображение и короткое видео).
 - Логика m-m без использования PK m-m в URL:
   - добавление услуги в черновик,
-  - изменение `quantity/sort_order/match_value`,
+  - изменение `quantity/sort_order`,
   - удаление по `service_id`.
 - Бизнес-ограничения статусов:
   - создатель может только удалить/сформировать черновик,
@@ -61,7 +61,11 @@
 ### Claim domain
 
 - `GET /api/claims/cart-icon`
-- `GET /api/claims` (фильтры `status`, `formed_from`, `formed_to`)
+- `GET /api/claims` (фильтры `status`, `formed_from`, `formed_to`)  
+  В списке дополнительно выводятся:
+  - `result_items_count` = количество строк m-m, где `result_value IS NOT NULL`
+  - `result_value` = результат заявки (`completion_formula_result`, либо fallback на `MAX(m-m.result_value)`)
+  - `best_match_label` = тематическое поле (лучшее совпадение)
 - `GET /api/claims/:id`
 - `PUT /api/claims/:id`
 - `PUT /api/claims/:id/form`
@@ -71,7 +75,7 @@
 ### User domain
 
 - `POST /api/users/register`
-- `POST /api/users/auth` (заглушка)
+- `POST /api/users/auth` (заглушка без токена, только проверка логина/пароля)
 - `POST /api/users/logout` (заглушка)
 
 ## Формирование заявки (бизнес-логика)
@@ -81,7 +85,6 @@
 - Проверяются обязательные поля заявки.
 - Рассчитываются поля m-m (формула состава + score).
 - Считается стоимость `total_cost`.
-- Считается дата доставки `planned_delivery_at` (не более 30 дней).
 - Проставляется `formed_at`, `status=сформирован`.
 
 При `PUT /api/claims/:id/moderate`:
@@ -109,14 +112,14 @@ ORDER BY id DESC;
 
 -- Заявки
 SELECT id, claim_code, status, creator_id, moderator_id, created_at, formed_at, completed_at,
-       total_cost, planned_delivery_at, completion_formula_result
+       total_cost, completion_formula_result
 FROM artifact_claims
 ORDER BY id DESC;
 
 -- M-M таблица
-SELECT id, claim_id, service_id, quantity, sort_order, match_value, composition_result, match_score
+SELECT claim_id, service_id, quantity, sort_order, result_value
 FROM claim_alloy_matches
-ORDER BY id DESC;
+ORDER BY claim_id DESC, service_id ASC;
 
 -- Пользователи
 SELECT id, login, full_name, role, created_at

@@ -2,6 +2,8 @@ package api
 
 import (
 	"log"
+	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -43,7 +45,12 @@ func StartServer() {
 		api.POST("/users/logout", h.LogoutStubAPI)
 	}
 
-	if runErr := r.Run(":8080"); runErr != nil {
+	port := strings.TrimSpace(os.Getenv("APP_PORT"))
+	if port == "" {
+		port = "8080"
+	}
+
+	if runErr := r.Run(":" + port); runErr != nil {
 		log.Printf("server stopped with error: %v", runErr)
 	}
 

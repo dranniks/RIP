@@ -146,17 +146,32 @@ func (r *Repository) migrate() error {
 		"ALTER TABLE reference_alloy_services ADD COLUMN IF NOT EXISTS image_file_name VARCHAR(160)",
 		"ALTER TABLE reference_alloy_services ADD COLUMN IF NOT EXISTS video_file_name VARCHAR(160)",
 		"ALTER TABLE reference_alloy_services ADD COLUMN IF NOT EXISTS unit_price NUMERIC(10,2) NOT NULL DEFAULT 0",
-		"ALTER TABLE artifact_claims ADD COLUMN IF NOT EXISTS artifact_origin VARCHAR(180)",
-		"ALTER TABLE artifact_claims ADD COLUMN IF NOT EXISTS analyzer_model VARCHAR(120)",
 		"ALTER TABLE artifact_claims ADD COLUMN IF NOT EXISTS total_cost NUMERIC(12,2)",
-		"ALTER TABLE artifact_claims ADD COLUMN IF NOT EXISTS planned_delivery_at TIMESTAMP",
 		"ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255) NOT NULL DEFAULT ''",
 		"ALTER TABLE claim_alloy_matches ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0",
-		"ALTER TABLE claim_alloy_matches ADD COLUMN IF NOT EXISTS match_value NUMERIC(10,3)",
-		"ALTER TABLE claim_alloy_matches ADD COLUMN IF NOT EXISTS composition_result VARCHAR(255)",
-		"ALTER TABLE claim_alloy_matches ADD COLUMN IF NOT EXISTS match_score NUMERIC(8,2)",
-		"ALTER TABLE claim_alloy_matches ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()",
-		"ALTER TABLE claim_alloy_matches ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()",
+		"ALTER TABLE artifact_claims DROP COLUMN IF EXISTS artifact_title",
+		"ALTER TABLE artifact_claims DROP COLUMN IF EXISTS artifact_origin",
+		"ALTER TABLE artifact_claims DROP COLUMN IF EXISTS analyzer_model",
+		"ALTER TABLE artifact_claims DROP COLUMN IF EXISTS planned_delivery_at",
+		"ALTER TABLE claim_alloy_matches ADD COLUMN IF NOT EXISTS result_value NUMERIC(10,3)",
+		"DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'claim_alloy_matches' AND column_name = 'match_score') THEN EXECUTE 'UPDATE claim_alloy_matches SET result_value = COALESCE(result_value, match_score)'; END IF; END $$",
+		"DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'claim_alloy_matches' AND column_name = 'match_value') THEN EXECUTE 'UPDATE claim_alloy_matches SET result_value = COALESCE(result_value, match_value)'; END IF; END $$",
+		"ALTER TABLE claim_alloy_matches DROP COLUMN IF EXISTS match_value",
+		"ALTER TABLE claim_alloy_matches DROP COLUMN IF EXISTS composition_result",
+		"ALTER TABLE claim_alloy_matches DROP COLUMN IF EXISTS match_score",
+		"ALTER TABLE claim_alloy_matches DROP COLUMN IF EXISTS created_at",
+		"ALTER TABLE claim_alloy_matches DROP COLUMN IF EXISTS updated_at",
+		"ALTER TABLE claim_alloy_matches DROP CONSTRAINT IF EXISTS claim_alloy_matches_pkey",
+		"ALTER TABLE claim_alloy_matches DROP CONSTRAINT IF EXISTS ux_claim_service",
+		"DROP INDEX IF EXISTS ux_claim_service",
+		"ALTER TABLE claim_alloy_matches ADD CONSTRAINT claim_alloy_matches_pkey PRIMARY KEY (claim_id, service_id)",
+		"ALTER TABLE claim_alloy_matches DROP CONSTRAINT IF EXISTS ck_claim_alloy_matches_quantity",
+		"ALTER TABLE claim_alloy_matches DROP CONSTRAINT IF EXISTS ck_claim_alloy_matches_sort_order",
+		"ALTER TABLE claim_alloy_matches ADD CONSTRAINT ck_claim_alloy_matches_quantity CHECK (quantity > 0)",
+		"ALTER TABLE claim_alloy_matches ADD CONSTRAINT ck_claim_alloy_matches_sort_order CHECK (sort_order >= 0)",
+		"ALTER TABLE claim_alloy_matches DROP COLUMN IF EXISTS id",
+		"DROP TRIGGER IF EXISTS trg_recalc_completion_result ON artifact_claims",
+		"DROP FUNCTION IF EXISTS recalc_completion_result()",
 		"UPDATE reference_alloy_services SET status = '" + model.ServiceStatusActive + "' WHERE status NOT IN ('" + model.ServiceStatusActive + "', '" + model.ServiceStatusDeleted + "')",
 		"UPDATE artifact_claims SET status = '" + model.ClaimStatusDraft + "' WHERE status NOT IN ('" + model.ClaimStatusDraft + "', '" + model.ClaimStatusDeleted + "', '" + model.ClaimStatusFormed + "', '" + model.ClaimStatusCompleted + "', '" + model.ClaimStatusRejected + "')",
 		"CREATE UNIQUE INDEX IF NOT EXISTS ux_claim_draft_per_creator ON artifact_claims (creator_id) WHERE status = '" + model.ClaimStatusDraft + "'",
@@ -278,10 +293,6 @@ func (r *Repository) seed() error {
 	if err := resetSequence(r.db, "artifact_claims", "id"); err != nil {
 		return err
 	}
-	if err := resetSequence(r.db, "claim_alloy_matches", "id"); err != nil {
-		return err
-	}
-
 	return nil
 }
 
