@@ -36,6 +36,8 @@ type ClaimFilters struct {
 	Status     string
 	FormedFrom *time.Time
 	FormedTo   *time.Time
+	ViewerID   uint
+	ViewerRole string
 }
 
 type ClaimListItem struct {
@@ -251,6 +253,14 @@ func (r *Repository) ListClaims(filters ClaimFilters) ([]ClaimListItem, error) {
 		Where("c.status NOT IN ?", []string{model.ClaimStatusDeleted, model.ClaimStatusDraft}).
 		Order("c.id DESC")
 
+	viewerRole := strings.ToLower(strings.TrimSpace(filters.ViewerRole))
+	if viewerRole != "moderator" {
+		if filters.ViewerID == 0 {
+			return nil, fmt.Errorf("%w: viewer id is required", ErrValidation)
+		}
+		query = query.Where("c.creator_id = ?", filters.ViewerID)
+	}
+
 	if strings.TrimSpace(filters.Status) != "" {
 		query = query.Where("c.status = ?", strings.TrimSpace(filters.Status))
 	}
@@ -268,13 +278,25 @@ func (r *Repository) ListClaims(filters ClaimFilters) ([]ClaimListItem, error) {
 	return rows, nil
 }
 
-func (r *Repository) GetClaimDetails(claimID uint) (*ClaimDetails, error) {
+func (r *Repository) GetClaimDetails(claimID uint, viewerID uint, viewerRole string) (*ClaimDetails, error) {
+	if claimID == 0 {
+		return nil, fmt.Errorf("%w: claim id is required", ErrValidation)
+	}
+
 	claim := model.ArtifactClaim{}
-	if err := r.db.
+	query := r.db.
 		Preload("Creator").
 		Preload("Moderator").
-		Where("id = ? AND status <> ?", claimID, model.ClaimStatusDeleted).
-		First(&claim).Error; err != nil {
+		Where("id = ? AND status <> ?", claimID, model.ClaimStatusDeleted)
+
+	if strings.ToLower(strings.TrimSpace(viewerRole)) != "moderator" {
+		if viewerID == 0 {
+			return nil, fmt.Errorf("%w: viewer id is required", ErrValidation)
+		}
+		query = query.Where("creator_id = ?", viewerID)
+	}
+
+	if err := query.First(&claim).Error; err != nil {
 		return nil, err
 	}
 

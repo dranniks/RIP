@@ -21,11 +21,10 @@ type AuthInput struct {
 }
 
 type AuthResult struct {
-	UserID        uint
-	Login         string
-	Role          string
-	Authenticated bool
-	AuthMode      string
+	UserID   uint
+	Login    string
+	FullName string
+	Role     string
 }
 
 func (r *Repository) RegisterUser(input RegisterUserInput) (*model.User, error) {
@@ -64,7 +63,7 @@ func (r *Repository) RegisterUser(input RegisterUserInput) (*model.User, error) 
 	return &user, nil
 }
 
-func (r *Repository) AuthenticateStub(input AuthInput) (*AuthResult, error) {
+func (r *Repository) AuthenticateUser(input AuthInput) (*AuthResult, error) {
 	login := strings.TrimSpace(input.Login)
 	password := strings.TrimSpace(input.Password)
 	if login == "" || password == "" {
@@ -84,10 +83,9 @@ func (r *Repository) AuthenticateStub(input AuthInput) (*AuthResult, error) {
 	}
 
 	return &AuthResult{
-		UserID:        user.ID,
-		Login:         user.Login,
-		Role:          user.Role,
-		Authenticated: true,
-		AuthMode:      "stub-singleton-no-token",
+		UserID:   user.ID,
+		Login:    user.Login,
+		FullName: user.FullName,
+		Role:     user.Role,
 	}, nil
 }

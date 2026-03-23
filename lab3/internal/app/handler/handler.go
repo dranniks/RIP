@@ -12,16 +12,21 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"xrfApp/internal/app/identity"
+	"xrfApp/internal/app/auth"
+	"xrfApp/internal/app/middleware"
 	"xrfApp/internal/app/repository"
 )
 
 type Handler struct {
-	Repository *repository.Repository
+	Repository   *repository.Repository
+	TokenManager *auth.Manager
 }
 
-func NewHandler(r *repository.Repository) *Handler {
-	return &Handler{Repository: r}
+func NewHandler(r *repository.Repository, tokenManager *auth.Manager) *Handler {
+	return &Handler{
+		Repository:   r,
+		TokenManager: tokenManager,
+	}
 }
 
 func (h *Handler) GetServicesAPI(ctx *gin.Context) {
@@ -150,6 +155,12 @@ func (h *Handler) CreateServiceAPI(ctx *gin.Context) {
 }
 
 func (h *Handler) AddServiceToDraftAPI(ctx *gin.Context) {
+	user, ok := h.currentUser(ctx)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "authorization required"})
+		return
+	}
+
 	body := struct {
 		ServiceID uint `json:"service_id"`
 	}{}
@@ -162,7 +173,7 @@ func (h *Handler) AddServiceToDraftAPI(ctx *gin.Context) {
 		return
 	}
 
-	claim, match, err := h.Repository.AddServiceToDraft(creatorID(), body.ServiceID)
+	claim, match, err := h.Repository.AddServiceToDraft(user.ID, body.ServiceID)
 	if err != nil {
 		h.handleRepoError(ctx, err)
 		return
@@ -180,6 +191,12 @@ func (h *Handler) AddServiceToDraftAPI(ctx *gin.Context) {
 }
 
 func (h *Handler) UpdateDraftMatchAPI(ctx *gin.Context) {
+	user, ok := h.currentUser(ctx)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "authorization required"})
+		return
+	}
+
 	serviceID, err := parseUintParam(ctx.Param("service_id"))
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid service id"})
@@ -195,7 +212,7 @@ func (h *Handler) UpdateDraftMatchAPI(ctx *gin.Context) {
 		return
 	}
 
-	match, err := h.Repository.UpdateDraftMatch(creatorID(), serviceID, repository.MatchUpdateInput{
+	match, err := h.Repository.UpdateDraftMatch(user.ID, serviceID, repository.MatchUpdateInput{
 		Quantity:  body.Quantity,
 		SortOrder: body.SortOrder,
 	})
@@ -215,13 +232,19 @@ func (h *Handler) UpdateDraftMatchAPI(ctx *gin.Context) {
 }
 
 func (h *Handler) DeleteDraftMatchAPI(ctx *gin.Context) {
+	user, ok := h.currentUser(ctx)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "authorization required"})
+		return
+	}
+
 	serviceID, err := parseUintParam(ctx.Param("service_id"))
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid service id"})
 		return
 	}
 
-	if err := h.Repository.DeleteDraftMatch(creatorID(), serviceID); err != nil {
+	if err := h.Repository.DeleteDraftMatch(user.ID, serviceID); err != nil {
 		h.handleRepoError(ctx, err)
 		return
 	}
@@ -232,7 +255,13 @@ func (h *Handler) DeleteDraftMatchAPI(ctx *gin.Context) {
 }
 
 func (h *Handler) GetCartIconAPI(ctx *gin.Context) {
-	card, err := h.Repository.GetCartIcon(creatorID())
+	user, ok := h.currentUser(ctx)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "authorization required"})
+		return
+	}
+
+	card, err := h.Repository.GetCartIcon(user.ID)
 	if err != nil {
 		h.handleRepoError(ctx, err)
 		return
@@ -244,11 +273,19 @@ func (h *Handler) GetCartIconAPI(ctx *gin.Context) {
 }
 
 func (h *Handler) GetClaimsAPI(ctx *gin.Context) {
+	user, ok := h.currentUser(ctx)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "authorization required"})
+		return
+	}
+
 	filters, err := parseClaimFilters(ctx)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 		return
 	}
+	filters.ViewerID = user.ID
+	filters.ViewerRole = user.Role
 
 	claims, err := h.Repository.ListClaims(filters)
 	if err != nil {
@@ -267,13 +304,19 @@ func (h *Handler) GetClaimsAPI(ctx *gin.Context) {
 }
 
 func (h *Handler) GetClaimAPI(ctx *gin.Context) {
+	user, ok := h.currentUser(ctx)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "authorization required"})
+		return
+	}
+
 	claimID, err := parseUintParam(ctx.Param("id"))
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid claim id"})
 		return
 	}
 
-	details, err := h.Repository.GetClaimDetails(claimID)
+	details, err := h.Repository.GetClaimDetails(claimID, user.ID, user.Role)
 	if err != nil {
 		h.handleRepoError(ctx, err)
 		return
@@ -285,6 +328,12 @@ func (h *Handler) GetClaimAPI(ctx *gin.Context) {
 }
 
 func (h *Handler) UpdateDraftClaimAPI(ctx *gin.Context) {
+	user, ok := h.currentUser(ctx)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "authorization required"})
+		return
+	}
+
 	claimID, err := parseUintParam(ctx.Param("id"))
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid claim id"})
@@ -303,7 +352,7 @@ func (h *Handler) UpdateDraftClaimAPI(ctx *gin.Context) {
 		return
 	}
 
-	err = h.Repository.UpdateDraftClaimFields(creatorID(), claimID, repository.ClaimUpdateInput{
+	err = h.Repository.UpdateDraftClaimFields(user.ID, claimID, repository.ClaimUpdateInput{
 		OperatorComment: body.OperatorComment,
 		CuMeasured:      body.CuMeasured,
 		ZnMeasured:      body.ZnMeasured,
@@ -321,13 +370,19 @@ func (h *Handler) UpdateDraftClaimAPI(ctx *gin.Context) {
 }
 
 func (h *Handler) FormClaimAPI(ctx *gin.Context) {
+	user, ok := h.currentUser(ctx)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "authorization required"})
+		return
+	}
+
 	claimID, err := parseUintParam(ctx.Param("id"))
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid claim id"})
 		return
 	}
 
-	claim, err := h.Repository.FormDraftClaim(creatorID(), claimID)
+	claim, err := h.Repository.FormDraftClaim(user.ID, claimID)
 	if err != nil {
 		h.handleRepoError(ctx, err)
 		return
@@ -346,6 +401,12 @@ func (h *Handler) FormClaimAPI(ctx *gin.Context) {
 }
 
 func (h *Handler) ModerateClaimAPI(ctx *gin.Context) {
+	user, ok := h.currentUser(ctx)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "authorization required"})
+		return
+	}
+
 	claimID, err := parseUintParam(ctx.Param("id"))
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid claim id"})
@@ -360,7 +421,7 @@ func (h *Handler) ModerateClaimAPI(ctx *gin.Context) {
 		return
 	}
 
-	claim, err := h.Repository.ModerateFormedClaim(moderatorID(), claimID, body.Action)
+	claim, err := h.Repository.ModerateFormedClaim(user.ID, claimID, body.Action)
 	if err != nil {
 		h.handleRepoError(ctx, err)
 		return
@@ -378,13 +439,19 @@ func (h *Handler) ModerateClaimAPI(ctx *gin.Context) {
 }
 
 func (h *Handler) DeleteDraftClaimAPI(ctx *gin.Context) {
+	user, ok := h.currentUser(ctx)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "authorization required"})
+		return
+	}
+
 	claimID, err := parseUintParam(ctx.Param("id"))
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"message": "invalid claim id"})
 		return
 	}
 
-	if err := h.Repository.DeleteDraftClaim(creatorID(), claimID); err != nil {
+	if err := h.Repository.DeleteDraftClaim(user.ID, claimID); err != nil {
 		h.handleRepoError(ctx, err)
 		return
 	}
@@ -420,7 +487,12 @@ func (h *Handler) RegisterUserAPI(ctx *gin.Context) {
 	})
 }
 
-func (h *Handler) AuthStubAPI(ctx *gin.Context) {
+func (h *Handler) AuthAPI(ctx *gin.Context) {
+	if h.TokenManager == nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"message": "jwt manager is not configured"})
+		return
+	}
+
 	body := struct {
 		Login    string `json:"login"`
 		Password string `json:"password"`
@@ -430,7 +502,7 @@ func (h *Handler) AuthStubAPI(ctx *gin.Context) {
 		return
 	}
 
-	auth, err := h.Repository.AuthenticateStub(repository.AuthInput{
+	authResult, err := h.Repository.AuthenticateUser(repository.AuthInput{
 		Login:    body.Login,
 		Password: body.Password,
 	})
@@ -439,13 +511,22 @@ func (h *Handler) AuthStubAPI(ctx *gin.Context) {
 		return
 	}
 
+	token, claims, err := h.TokenManager.IssueToken(authResult.UserID, authResult.Login, authResult.Role)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
+	}
+
 	ctx.JSON(http.StatusOK, gin.H{
 		"data": gin.H{
-			"user_id":       auth.UserID,
-			"login":         auth.Login,
-			"role":          auth.Role,
-			"authenticated": auth.Authenticated,
-			"auth_mode":     auth.AuthMode,
+			"user_id":     authResult.UserID,
+			"login":       authResult.Login,
+			"full_name":   authResult.FullName,
+			"role":        authResult.Role,
+			"token_type":  "Bearer",
+			"token":       token,
+			"expires_at":  time.Unix(claims.ExpiresAt, 0).UTC(),
+			"auth_method": "jwt",
 		},
 	})
 }
@@ -469,12 +550,12 @@ func (h *Handler) handleRepoError(ctx *gin.Context, err error) {
 	}
 }
 
-func creatorID() uint {
-	return identity.CurrentUsers().Creator.ID
-}
-
-func moderatorID() uint {
-	return identity.CurrentUsers().Moderator.ID
+func (h *Handler) currentUser(ctx *gin.Context) (middleware.AuthUser, bool) {
+	user, ok := middleware.CurrentUser(ctx)
+	if !ok {
+		return middleware.AuthUser{}, false
+	}
+	return user, true
 }
 
 func parseUintParam(raw string) (uint, error) {
