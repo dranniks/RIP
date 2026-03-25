@@ -1,0 +1,76 @@
+@startuml
+title sd Диаграмма последовательности
+
+skinparam backgroundColor #ECECEC
+skinparam defaultFontName Arial
+skinparam sequenceArrowThickness 1
+skinparam responseMessageBelowArrow true
+skinparam participant {
+  BackgroundColor #E3E3E3
+  BorderColor #666666
+  FontColor #111111
+}
+skinparam actor {
+  BackgroundColor #ECECEC
+  BorderColor #666666
+  FontColor #111111
+}
+skinparam sequence {
+  LifeLineBorderColor #8A8A8A
+  LifeLineBackgroundColor #F2F2F2
+  ParticipantBorderColor #666666
+  ParticipantBackgroundColor #E3E3E3
+  ArrowColor #222222
+  ActorBorderColor #666666
+}
+
+actor "Фронтенд\n(создатель)" as Creator
+actor "Фронтенд\n(модератор)" as Moderator
+participant ": Домен\nUsers" as Users
+participant ": Домен\nServices" as Services
+participant ": Домен\nClaims" as Claims
+participant ": Домен\nM-M" as MM
+participant "Расчет XRF\n(внутри FormClaim)" as Calc
+
+Creator -> Users: 1 : POST /api/users/auth\n(login,password)
+Users --> Creator: 2 : JSON JWT + role + session_id + expires_at
+
+Creator -> Services: 3 : GET /api/services?q=bronze
+Services --> Creator: 4 : JSON список услуг
+
+Creator -> Claims: 5 : GET /api/claims/cart-icon
+Claims --> Creator: 6 : JSON корзина (id черновика, количество)
+
+Creator -> MM: 7 : POST /api/claim-items\n(service_id:1)
+MM --> Creator: 8 : JSON услуга добавлена в черновик
+
+Creator -> MM: 9 : POST /api/claim-items\n(service_id:2)
+MM --> Creator: 10 : JSON добавлена 2-я услуга
+
+Creator -> Claims: 11 : GET /api/claims/{claim_id}
+Claims --> Creator: 12 : JSON черновик заявки + 2 услуги
+
+Creator -> MM: 13 : PUT /api/claim-items/{service_id_1}\n(quantity,sort_order)
+MM --> Creator: 14 : JSON m-m обновлена
+
+Creator -> Claims: 15 : PUT /api/claims/{claim_id}\n(operator_comment,cu,zn,sn,pb)
+Claims --> Creator: 16 : JSON черновик обновлен
+
+Creator -> Claims: 17 : PUT /api/claims/{claim_id}/moderate\n(action:"complete")
+Claims --> Creator: 18 : 403 JSON недостаточно прав
+
+Creator -> Claims: 19 : PUT /api/claims/{claim_id}/form
+Claims -> Calc: 20 : Расчет формулы состава и score
+Calc --> Claims: 21 : result_value[] + best_match + total_cost
+Claims --> Creator: 22 : 200 JSON заявка сформирована
+
+Moderator -> Users: 23 : POST /api/users/auth\n(login,password)
+Users --> Moderator: 24 : 200 JSON JWT (роль moderator)
+
+Moderator -> Claims: 25 : PUT /api/claims/{claim_id}/moderate\n(action:"complete")
+Claims --> Moderator: 26 : 200 JSON status=completed
+
+Moderator -> Claims: 27 : GET /api/claims
+Claims --> Moderator: 28 : 200 JSON список всех заявок
+
+@enduml

@@ -1,0 +1,57 @@
+@startuml
+title Sequence Diagram (Lab4, XRF)
+
+skinparam backgroundColor #FFFFFF
+skinparam sequenceArrowThickness 1
+skinparam responseMessageBelowArrow true
+
+actor "Frontend\n(creator)" as Creator
+actor "Frontend\n(moderator)" as Moderator
+participant ": Domain Users" as Users
+participant ": Domain Services" as Services
+participant ": Domain Claims" as Claims
+participant ": Domain M-M\n(ClaimItems)" as MM
+participant ": XRF Calculation\n(inside FormClaim)" as Calc
+
+Creator -> Users: 1: POST /api/users/auth\n{login,password}
+Users --> Creator: 2: 200 JSON JWT + session_id + role + expires_at
+
+Creator -> Services: 3: GET /api/services?q=bronze
+Services --> Creator: 4: 200 JSON services[]
+
+Creator -> Claims: 5: GET /api/claims/cart-icon
+Claims --> Creator: 6: 200 JSON {claim_id?, claim_code?, service_count}
+
+Creator -> MM: 7: POST /api/claim-items\n{service_id:1}
+MM --> Creator: 8: 201 JSON {claim_id,service_id,quantity,sort_order}
+
+Creator -> MM: 9: POST /api/claim-items\n{service_id:2}
+MM --> Creator: 10: 201 JSON second service added
+
+Creator -> Claims: 11: GET /api/claims/{claim_id}
+Claims --> Creator: 12: 200 JSON draft claim + 2 services
+
+Creator -> MM: 13: PUT /api/claim-items/{service_id_1}\n{quantity,sort_order}
+MM --> Creator: 14: 200 JSON claim-item updated
+
+Creator -> Claims: 15: PUT /api/claims/{claim_id}\n{operator_comment, cu_measured, zn_measured, sn_measured, pb_measured}
+Claims --> Creator: 16: 200 JSON draft claim updated
+
+Creator -> Claims: 17: PUT /api/claims/{claim_id}/moderate\n{action:"complete"}
+Claims --> Creator: 18: 403 JSON forbidden
+
+Creator -> Claims: 19: PUT /api/claims/{claim_id}/form
+Claims -> Calc: 20: calculateCompositionAndScore(claim_id)
+Calc --> Claims: 21: result_value[] + best_match + total_cost
+Claims --> Creator: 22: 200 JSON formed claim
+
+Moderator -> Users: 23: POST /api/users/auth\n{login,password}
+Users --> Moderator: 24: 200 JSON JWT(role=moderator)
+
+Moderator -> Claims: 25: PUT /api/claims/{claim_id}/moderate\n{action:"complete"}
+Claims --> Moderator: 26: 200 JSON status="completed"
+
+Moderator -> Claims: 27: GET /api/claims
+Claims --> Moderator: 28: 200 JSON all claims for moderator
+
+@enduml

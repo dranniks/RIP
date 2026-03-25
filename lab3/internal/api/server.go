@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"log"
 	"os"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"xrfApp/internal/app/handler"
 	"xrfApp/internal/app/middleware"
 	"xrfApp/internal/app/repository"
+	"xrfApp/internal/app/session"
 )
 
 func StartServer() {
@@ -21,7 +23,12 @@ func StartServer() {
 		log.Fatalf("cannot init repository: %v", err)
 	}
 	tokenManager := auth.NewManagerFromEnv()
-	h := handler.NewHandler(repo, tokenManager)
+	sessionManager := session.NewManagerFromEnv()
+	if err := sessionManager.Ping(context.Background()); err != nil {
+		log.Fatalf("cannot init redis session manager: %v", err)
+	}
+
+	h := handler.NewHandler(repo, tokenManager, sessionManager)
 
 	r := gin.Default()
 
@@ -40,7 +47,7 @@ func StartServer() {
 		}
 
 		authenticated := api.Group("")
-		authenticated.Use(middleware.RequireAuth(tokenManager))
+		authenticated.Use(middleware.RequireAuth(tokenManager, sessionManager))
 		{
 			authenticated.POST("/services", h.CreateServiceAPI)
 
@@ -59,7 +66,7 @@ func StartServer() {
 		}
 
 		moderator := api.Group("")
-		moderator.Use(middleware.RequireAuth(tokenManager), middleware.RequireRoles("moderator"))
+		moderator.Use(middleware.RequireAuth(tokenManager, sessionManager), middleware.RequireRoles("moderator"))
 		{
 			moderator.PUT("/claims/:id/moderate", h.ModerateClaimAPI)
 		}

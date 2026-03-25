@@ -28,6 +28,7 @@ type Claims struct {
 	UserID    uint   `json:"uid"`
 	Login     string `json:"login"`
 	Role      string `json:"role"`
+	SessionID string `json:"sid"`
 	IssuedAt  int64  `json:"iat"`
 	ExpiresAt int64  `json:"exp"`
 }
@@ -66,7 +67,7 @@ func (m *Manager) TTL() time.Duration {
 	return m.ttl
 }
 
-func (m *Manager) IssueToken(userID uint, login string, role string) (string, *Claims, error) {
+func (m *Manager) IssueToken(userID uint, login string, role string, sessionID string) (string, *Claims, error) {
 	if userID == 0 {
 		return "", nil, fmt.Errorf("%w: user id is required", ErrInvalidToken)
 	}
@@ -76,12 +77,16 @@ func (m *Manager) IssueToken(userID uint, login string, role string) (string, *C
 	if strings.TrimSpace(role) == "" {
 		return "", nil, fmt.Errorf("%w: role is required", ErrInvalidToken)
 	}
+	if strings.TrimSpace(sessionID) == "" {
+		return "", nil, fmt.Errorf("%w: session id is required", ErrInvalidToken)
+	}
 
 	now := time.Now().UTC()
 	claims := &Claims{
 		UserID:    userID,
 		Login:     strings.TrimSpace(login),
 		Role:      strings.TrimSpace(role),
+		SessionID: strings.TrimSpace(sessionID),
 		IssuedAt:  now.Unix(),
 		ExpiresAt: now.Add(m.ttl).Unix(),
 	}
@@ -139,7 +144,7 @@ func (m *Manager) ParseToken(rawToken string) (*Claims, error) {
 	if claims.ExpiresAt <= nowUnix {
 		return nil, ErrExpiredToken
 	}
-	if claims.UserID == 0 || strings.TrimSpace(claims.Login) == "" || strings.TrimSpace(claims.Role) == "" {
+	if claims.UserID == 0 || strings.TrimSpace(claims.Login) == "" || strings.TrimSpace(claims.Role) == "" || strings.TrimSpace(claims.SessionID) == "" {
 		return nil, fmt.Errorf("%w: payload fields are incomplete", ErrInvalidToken)
 	}
 

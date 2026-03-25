@@ -15,17 +15,20 @@ import (
 	"xrfApp/internal/app/auth"
 	"xrfApp/internal/app/middleware"
 	"xrfApp/internal/app/repository"
+	"xrfApp/internal/app/session"
 )
 
 type Handler struct {
 	Repository   *repository.Repository
 	TokenManager *auth.Manager
+	SessionStore *session.Manager
 }
 
-func NewHandler(r *repository.Repository, tokenManager *auth.Manager) *Handler {
+func NewHandler(r *repository.Repository, tokenManager *auth.Manager, sessionStore *session.Manager) *Handler {
 	return &Handler{
 		Repository:   r,
 		TokenManager: tokenManager,
+		SessionStore: sessionStore,
 	}
 }
 
@@ -492,6 +495,10 @@ func (h *Handler) AuthAPI(ctx *gin.Context) {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"message": "jwt manager is not configured"})
 		return
 	}
+	if h.SessionStore == nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"message": "session store is not configured"})
+		return
+	}
 
 	body := struct {
 		Login    string `json:"login"`
@@ -511,29 +518,50 @@ func (h *Handler) AuthAPI(ctx *gin.Context) {
 		return
 	}
 
-	token, claims, err := h.TokenManager.IssueToken(authResult.UserID, authResult.Login, authResult.Role)
+	sessionID, sessionExpiresAt, err := h.SessionStore.CreateSession(
+		ctx.Request.Context(),
+		authResult.UserID,
+		authResult.Login,
+		authResult.Role,
+	)
 	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
+	}
+
+	token, claims, err := h.TokenManager.IssueToken(authResult.UserID, authResult.Login, authResult.Role, sessionID)
+	if err != nil {
+		_ = h.SessionStore.DeleteSession(ctx.Request.Context(), sessionID)
 		ctx.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
 		"data": gin.H{
-			"user_id":     authResult.UserID,
-			"login":       authResult.Login,
-			"full_name":   authResult.FullName,
-			"role":        authResult.Role,
-			"token_type":  "Bearer",
-			"token":       token,
-			"expires_at":  time.Unix(claims.ExpiresAt, 0).UTC(),
-			"auth_method": "jwt",
+			"user_id":            authResult.UserID,
+			"login":              authResult.Login,
+			"full_name":          authResult.FullName,
+			"role":               authResult.Role,
+			"token_type":         "Bearer",
+			"token":              token,
+			"expires_at":         time.Unix(claims.ExpiresAt, 0).UTC(),
+			"session_id":         sessionID,
+			"session_key":        h.SessionStore.Key(sessionID),
+			"session_ttl":        int(h.SessionStore.SessionTTL().Seconds()),
+			"session_expires_at": sessionExpiresAt,
+			"auth_method":        "jwt",
 		},
 	})
 }
 
 func (h *Handler) LogoutStubAPI(ctx *gin.Context) {
+	user, ok := h.currentUser(ctx)
+	if ok && h.SessionStore != nil {
+		_ = h.SessionStore.DeleteSession(ctx.Request.Context(), user.SessionID)
+	}
+
 	ctx.JSON(http.StatusOK, gin.H{
-		"message": "logout stub completed",
+		"message": "logout completed",
 	})
 }
 

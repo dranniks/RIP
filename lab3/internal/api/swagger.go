@@ -76,6 +76,13 @@ func buildOpenAPISpec() gin.H {
 						"token_type":  gin.H{"type": "string", "example": "Bearer"},
 						"token":       gin.H{"type": "string"},
 						"expires_at":  gin.H{"type": "string", "format": "date-time"},
+						"session_id":  gin.H{"type": "string"},
+						"session_key": gin.H{"type": "string"},
+						"session_ttl": gin.H{"type": "integer"},
+						"session_expires_at": gin.H{
+							"type":   "string",
+							"format": "date-time",
+						},
 						"auth_method": gin.H{"type": "string", "example": "jwt"},
 					},
 				},
@@ -135,7 +142,7 @@ func buildOpenAPISpec() gin.H {
 				"post": gin.H{
 					"tags":        []string{"Auth"},
 					"summary":     "Logout stub",
-					"description": "JWT version does not store server-side sessions.",
+					"description": "Deletes Redis session for current JWT session id.",
 					"security":    securityBearer,
 					"responses": gin.H{
 						"200": gin.H{"description": "OK"},

@@ -1,32 +1,33 @@
-# Лабораторная 4: JWT авторизация, permissions, Swagger
+# Лабораторная 4: JWT + Redis сессии + Swagger
 
 ## Что реализовано
 
-- JWT-аутентификация (`Authorization: Bearer <token>`), без cookie/sessions.
-- Ролевая модель:
-  - `creator`:
-    - работает только со своими заявками;
-    - не может вызывать модераторский метод завершения/отклонения.
-  - `moderator`:
-    - видит все заявки;
-    - может завершать/отклонять сформированные заявки.
-- Автозаполнение пользователя в заявке:
-  - создатель заявки берется из JWT (не из тела запроса).
-- Swagger UI:
-  - `/swagger`
+- Аутентификация через JWT (`Authorization: Bearer <token>`).
+- Серверные сессии в Redis:
+  - при `POST /api/users/auth` создается ключ сессии;
+  - в key хранится пользователь (`user_id`, `login`, `role`) и время истечения;
+  - middleware проверяет не только JWT подпись, но и наличие/валидность сессии в Redis;
+  - `POST /api/users/logout` удаляет Redis-сессию.
+- Ролевые permissions:
+  - `guest` -> `GET /api/claims` = `401`;
+  - `creator` -> видит только свои заявки;
+  - `creator` -> `PUT /api/claims/:id/moderate` = `403`;
+  - `moderator` -> видит все заявки и успешно завершает/отклоняет.
+- Swagger:
+  - UI: `/swagger`
   - OpenAPI JSON: `/swagger/openapi.json`
-  - В Swagger есть `BearerAuth` и описание методов.
+  - Включена схема `BearerAuth`.
 
-## Права доступа по API
+## Матрица доступа
 
-- Публично (без JWT):
+- Без JWT:
   - `GET /api/services`
   - `GET /api/services/:id`
   - `POST /api/users/register`
   - `POST /api/users/auth`
-- Требуется JWT:
+- С JWT:
   - `POST /api/services`
-  - все методы `claim-items`
+  - `POST/PUT/DELETE /api/claim-items...`
   - `GET /api/claims/cart-icon`
   - `GET /api/claims`
   - `GET /api/claims/:id`
@@ -34,18 +35,10 @@
   - `PUT /api/claims/:id/form`
   - `DELETE /api/claims/:id`
   - `POST /api/users/logout`
-- Только `moderator`:
+- Только moderator:
   - `PUT /api/claims/:id/moderate`
 
-## Проверки по заданию
-
-- Гость при `GET /api/claims` получает `401`.
-- Создатель при `GET /api/claims` видит только свои заявки.
-- Создатель при `PUT /api/claims/:id/moderate` получает `403`.
-- Модератор при `PUT /api/claims/:id/moderate` получает успех, проставляются поля модератора/дата завершения.
-- Модератор при `GET /api/claims` видит все заявки.
-
-## Пример аутентификации (JWT)
+## Пример auth
 
 `POST /api/users/auth`
 
@@ -57,14 +50,19 @@
 ```
 
 Ответ содержит:
-- `token_type: "Bearer"`
 - `token`
 - `expires_at`
+- `session_id`
+- `session_key`
+- `session_ttl`
+- `session_expires_at`
 
-Использование в следующих запросах:
+## Проверка Redis сессий
 
-```text
-Authorization: Bearer <token>
+```powershell
+docker exec -e REDISCLI_AUTH=password rip-redis-1 redis-cli PING
+docker exec -e REDISCLI_AUTH=password rip-redis-1 redis-cli KEYS 'lab4:sessions:*'
+docker exec -e REDISCLI_AUTH=password rip-redis-1 redis-cli GET <session_key>
 ```
 
 ## Переменные окружения
@@ -72,5 +70,12 @@ Authorization: Bearer <token>
 См. `.env.example`:
 - `JWT_SECRET`
 - `JWT_TTL_MINUTES`
+- `REDIS_HOST`
+- `REDIS_PORT`
+- `REDIS_PASSWORD`
+- `REDIS_DB`
+- `REDIS_TIMEOUT_SECONDS`
+- `SESSION_TTL_MINUTES`
+- `SESSION_KEY_PREFIX`
 - `APP_PORT`
 

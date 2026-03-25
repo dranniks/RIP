@@ -7,17 +7,19 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"xrfApp/internal/app/auth"
+	"xrfApp/internal/app/session"
 )
 
 const contextAuthUserKey = "auth_user"
 
 type AuthUser struct {
-	ID    uint
-	Login string
-	Role  string
+	ID        uint
+	Login     string
+	Role      string
+	SessionID string
 }
 
-func RequireAuth(tokens *auth.Manager) gin.HandlerFunc {
+func RequireAuth(tokens *auth.Manager, sessions *session.Manager) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		if tokens == nil {
 			ctx.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
@@ -47,10 +49,36 @@ func RequireAuth(tokens *auth.Manager) gin.HandlerFunc {
 			return
 		}
 
+		if sessions != nil {
+			sessionRecord, err := sessions.GetSession(ctx.Request.Context(), claims.SessionID)
+			if err != nil {
+				ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+					"message": "session check failed",
+				})
+				return
+			}
+			if sessionRecord == nil {
+				ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+					"message": "session is not found or expired",
+				})
+				return
+			}
+
+			if sessionRecord.UserID != claims.UserID ||
+				!strings.EqualFold(strings.TrimSpace(sessionRecord.Login), strings.TrimSpace(claims.Login)) ||
+				!strings.EqualFold(strings.TrimSpace(sessionRecord.Role), strings.TrimSpace(claims.Role)) {
+				ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+					"message": "session does not match token payload",
+				})
+				return
+			}
+		}
+
 		ctx.Set(contextAuthUserKey, AuthUser{
-			ID:    claims.UserID,
-			Login: claims.Login,
-			Role:  strings.ToLower(strings.TrimSpace(claims.Role)),
+			ID:        claims.UserID,
+			Login:     claims.Login,
+			Role:      strings.ToLower(strings.TrimSpace(claims.Role)),
+			SessionID: strings.TrimSpace(claims.SessionID),
 		})
 		ctx.Next()
 	}
