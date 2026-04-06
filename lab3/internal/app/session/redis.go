@@ -3,7 +3,7 @@ package session
 import (
 	"bufio"
 	"context"
-	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -20,8 +20,8 @@ const (
 	defaultRedisPort       = "6379"
 	defaultRedisPass       = "password"
 	defaultRedisDB         = 0
-	defaultSessionPrefix   = "lab4:sessions:"
-	defaultSessionTTLMin   = 120
+	defaultTokenPrefix     = "lab4:tokens:"
+	defaultTokenTTLMin     = 120
 	defaultRedisTimeoutSec = 3
 )
 
@@ -30,7 +30,7 @@ type Manager struct {
 	password    string
 	db          int
 	keyPrefix   string
-	sessionTTL  time.Duration
+	tokenTTL    time.Duration
 	dialTimeout time.Duration
 }
 
@@ -57,9 +57,13 @@ func NewManagerFromEnv() *Manager {
 		}
 	}
 
-	ttlMin := defaultSessionTTLMin
-	if rawTTL := strings.TrimSpace(os.Getenv("SESSION_TTL_MINUTES")); rawTTL != "" {
+	ttlMin := defaultTokenTTLMin
+	if rawTTL := strings.TrimSpace(os.Getenv("TOKEN_TTL_MINUTES")); rawTTL != "" {
 		if parsed, err := strconv.Atoi(rawTTL); err == nil && parsed > 0 {
+			ttlMin = parsed
+		}
+	} else if rawSessionTTL := strings.TrimSpace(os.Getenv("SESSION_TTL_MINUTES")); rawSessionTTL != "" {
+		if parsed, err := strconv.Atoi(rawSessionTTL); err == nil && parsed > 0 {
 			ttlMin = parsed
 		}
 	}
@@ -71,9 +75,12 @@ func NewManagerFromEnv() *Manager {
 		}
 	}
 
-	prefix := strings.TrimSpace(os.Getenv("SESSION_KEY_PREFIX"))
+	prefix := strings.TrimSpace(os.Getenv("TOKEN_KEY_PREFIX"))
 	if prefix == "" {
-		prefix = defaultSessionPrefix
+		prefix = strings.TrimSpace(os.Getenv("SESSION_KEY_PREFIX"))
+	}
+	if prefix == "" {
+		prefix = defaultTokenPrefix
 	}
 
 	return &Manager{
@@ -81,17 +88,23 @@ func NewManagerFromEnv() *Manager {
 		password:    password,
 		db:          db,
 		keyPrefix:   prefix,
-		sessionTTL:  time.Duration(ttlMin) * time.Minute,
+		tokenTTL:    time.Duration(ttlMin) * time.Minute,
 		dialTimeout: time.Duration(timeoutSec) * time.Second,
 	}
 }
 
-func (m *Manager) SessionTTL() time.Duration {
-	return m.sessionTTL
+func (m *Manager) TokenTTL() time.Duration {
+	return m.tokenTTL
 }
 
-func (m *Manager) Key(sessionID string) string {
-	return m.keyPrefix + strings.TrimSpace(sessionID)
+// SessionTTL оставлен как alias для обратной совместимости.
+func (m *Manager) SessionTTL() time.Duration {
+	return m.TokenTTL()
+}
+
+func (m *Manager) Key(rawToken string) string {
+	key, _ := m.tokenKey(rawToken)
+	return key
 }
 
 func (m *Manager) Ping(ctx context.Context) error {
@@ -107,53 +120,26 @@ func (m *Manager) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) CreateSession(ctx context.Context, userID uint, login string, role string) (string, time.Time, error) {
-	if userID == 0 {
-		return "", time.Time{}, fmt.Errorf("user id is required")
-	}
-	if strings.TrimSpace(login) == "" {
-		return "", time.Time{}, fmt.Errorf("login is required")
-	}
-	if strings.TrimSpace(role) == "" {
-		return "", time.Time{}, fmt.Errorf("role is required")
-	}
-
-	sessionID, err := generateSessionID()
+func (m *Manager) SaveToken(ctx context.Context, rawToken string, record Record, ttl time.Duration) error {
+	key, err := m.tokenKey(rawToken)
 	if err != nil {
-		return "", time.Time{}, err
+		return err
 	}
 
-	now := time.Now().UTC()
-	expiresAt := now.Add(m.sessionTTL).UTC()
-	record := Record{
-		UserID:    userID,
-		Login:     strings.TrimSpace(login),
-		Role:      strings.TrimSpace(role),
-		CreatedAt: now.Unix(),
-		ExpiresAt: expiresAt.Unix(),
+	if record.UserID == 0 || strings.TrimSpace(record.Login) == "" || strings.TrimSpace(record.Role) == "" {
+		return fmt.Errorf("token record is invalid")
 	}
 
-	if err := m.SaveSession(ctx, sessionID, record, m.sessionTTL); err != nil {
-		return "", time.Time{}, err
-	}
-
-	return sessionID, expiresAt, nil
-}
-
-func (m *Manager) SaveSession(ctx context.Context, sessionID string, record Record, ttl time.Duration) error {
-	if strings.TrimSpace(sessionID) == "" {
-		return fmt.Errorf("session id is required")
+	if ttl <= 0 {
+		ttl = m.tokenTTL
 	}
 	if ttl <= 0 {
-		ttl = m.sessionTTL
-	}
-	if ttl <= 0 {
-		return fmt.Errorf("invalid session ttl")
+		return fmt.Errorf("invalid token ttl")
 	}
 
 	payload, err := json.Marshal(record)
 	if err != nil {
-		return fmt.Errorf("marshal session: %w", err)
+		return fmt.Errorf("marshal token record: %w", err)
 	}
 
 	seconds := int(ttl.Seconds())
@@ -161,7 +147,7 @@ func (m *Manager) SaveSession(ctx context.Context, sessionID string, record Reco
 		seconds = 1
 	}
 
-	resp, err := m.do(ctx, "SETEX", m.Key(sessionID), strconv.Itoa(seconds), string(payload))
+	resp, err := m.do(ctx, "SETEX", key, strconv.Itoa(seconds), string(payload))
 	if err != nil {
 		return err
 	}
@@ -173,12 +159,13 @@ func (m *Manager) SaveSession(ctx context.Context, sessionID string, record Reco
 	return nil
 }
 
-func (m *Manager) GetSession(ctx context.Context, sessionID string) (*Record, error) {
-	if strings.TrimSpace(sessionID) == "" {
+func (m *Manager) GetToken(ctx context.Context, rawToken string) (*Record, error) {
+	key, err := m.tokenKey(rawToken)
+	if err != nil {
 		return nil, nil
 	}
 
-	resp, err := m.do(ctx, "GET", m.Key(sessionID))
+	resp, err := m.do(ctx, "GET", key)
 	if err != nil {
 		return nil, err
 	}
@@ -193,18 +180,28 @@ func (m *Manager) GetSession(ctx context.Context, sessionID string) (*Record, er
 
 	record := Record{}
 	if err := json.Unmarshal([]byte(rawPayload), &record); err != nil {
-		return nil, fmt.Errorf("decode session payload: %w", err)
+		return nil, fmt.Errorf("decode token payload: %w", err)
 	}
 	return &record, nil
 }
 
-func (m *Manager) DeleteSession(ctx context.Context, sessionID string) error {
-	if strings.TrimSpace(sessionID) == "" {
+func (m *Manager) DeleteToken(ctx context.Context, rawToken string) error {
+	key, err := m.tokenKey(rawToken)
+	if err != nil {
 		return nil
 	}
 
-	_, err := m.do(ctx, "DEL", m.Key(sessionID))
+	_, err = m.do(ctx, "DEL", key)
 	return err
+}
+
+func (m *Manager) tokenKey(rawToken string) (string, error) {
+	token := strings.TrimSpace(rawToken)
+	if token == "" {
+		return "", fmt.Errorf("token is required")
+	}
+	sum := sha256.Sum256([]byte(token))
+	return m.keyPrefix + hex.EncodeToString(sum[:]), nil
 }
 
 func (m *Manager) do(ctx context.Context, args ...string) (any, error) {
@@ -355,14 +352,6 @@ func readLine(r *bufio.Reader) (string, error) {
 		return "", err
 	}
 	return strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r"), nil
-}
-
-func generateSessionID() (string, error) {
-	raw := make([]byte, 16)
-	if _, err := rand.Read(raw); err != nil {
-		return "", fmt.Errorf("generate session id: %w", err)
-	}
-	return hex.EncodeToString(raw), nil
 }
 
 func envOrDefault(key, fallback string) string {

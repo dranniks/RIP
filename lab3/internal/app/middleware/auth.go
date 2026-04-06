@@ -13,13 +13,13 @@ import (
 const contextAuthUserKey = "auth_user"
 
 type AuthUser struct {
-	ID        uint
-	Login     string
-	Role      string
-	SessionID string
+	ID    uint
+	Login string
+	Role  string
+	Token string
 }
 
-func RequireAuth(tokens *auth.Manager, sessions *session.Manager) gin.HandlerFunc {
+func RequireAuth(tokens *auth.Manager, tokenStore *session.Manager) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		if tokens == nil {
 			ctx.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
@@ -49,36 +49,36 @@ func RequireAuth(tokens *auth.Manager, sessions *session.Manager) gin.HandlerFun
 			return
 		}
 
-		if sessions != nil {
-			sessionRecord, err := sessions.GetSession(ctx.Request.Context(), claims.SessionID)
+		if tokenStore != nil {
+			tokenRecord, err := tokenStore.GetToken(ctx.Request.Context(), rawToken)
 			if err != nil {
 				ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-					"message": "session check failed",
+					"message": "token check failed",
 				})
 				return
 			}
-			if sessionRecord == nil {
+			if tokenRecord == nil {
 				ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-					"message": "session is not found or expired",
+					"message": "token is not found or expired",
 				})
 				return
 			}
 
-			if sessionRecord.UserID != claims.UserID ||
-				!strings.EqualFold(strings.TrimSpace(sessionRecord.Login), strings.TrimSpace(claims.Login)) ||
-				!strings.EqualFold(strings.TrimSpace(sessionRecord.Role), strings.TrimSpace(claims.Role)) {
+			if tokenRecord.UserID != claims.UserID ||
+				!strings.EqualFold(strings.TrimSpace(tokenRecord.Login), strings.TrimSpace(claims.Login)) ||
+				!strings.EqualFold(strings.TrimSpace(tokenRecord.Role), strings.TrimSpace(claims.Role)) {
 				ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-					"message": "session does not match token payload",
+					"message": "token record does not match token payload",
 				})
 				return
 			}
 		}
 
 		ctx.Set(contextAuthUserKey, AuthUser{
-			ID:        claims.UserID,
-			Login:     claims.Login,
-			Role:      strings.ToLower(strings.TrimSpace(claims.Role)),
-			SessionID: strings.TrimSpace(claims.SessionID),
+			ID:    claims.UserID,
+			Login: claims.Login,
+			Role:  strings.ToLower(strings.TrimSpace(claims.Role)),
+			Token: rawToken,
 		})
 		ctx.Next()
 	}

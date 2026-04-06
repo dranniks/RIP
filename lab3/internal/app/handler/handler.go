@@ -496,7 +496,7 @@ func (h *Handler) AuthAPI(ctx *gin.Context) {
 		return
 	}
 	if h.SessionStore == nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"message": "session store is not configured"})
+		ctx.JSON(http.StatusInternalServerError, gin.H{"message": "token store is not configured"})
 		return
 	}
 
@@ -518,38 +518,43 @@ func (h *Handler) AuthAPI(ctx *gin.Context) {
 		return
 	}
 
-	sessionID, sessionExpiresAt, err := h.SessionStore.CreateSession(
-		ctx.Request.Context(),
-		authResult.UserID,
-		authResult.Login,
-		authResult.Role,
-	)
+	token, claims, err := h.TokenManager.IssueToken(authResult.UserID, authResult.Login, authResult.Role)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return
 	}
 
-	token, claims, err := h.TokenManager.IssueToken(authResult.UserID, authResult.Login, authResult.Role, sessionID)
+	tokenExpiresAt := time.Unix(claims.ExpiresAt, 0).UTC()
+	tokenTTL := time.Until(tokenExpiresAt)
+	if tokenTTL <= 0 {
+		tokenTTL = h.TokenManager.TTL()
+	}
+
+	err = h.SessionStore.SaveToken(ctx.Request.Context(), token, session.Record{
+		UserID:    authResult.UserID,
+		Login:     authResult.Login,
+		Role:      authResult.Role,
+		CreatedAt: time.Now().UTC().Unix(),
+		ExpiresAt: claims.ExpiresAt,
+	}, tokenTTL)
 	if err != nil {
-		_ = h.SessionStore.DeleteSession(ctx.Request.Context(), sessionID)
 		ctx.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
 		return
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
 		"data": gin.H{
-			"user_id":            authResult.UserID,
-			"login":              authResult.Login,
-			"full_name":          authResult.FullName,
-			"role":               authResult.Role,
-			"token_type":         "Bearer",
-			"token":              token,
-			"expires_at":         time.Unix(claims.ExpiresAt, 0).UTC(),
-			"session_id":         sessionID,
-			"session_key":        h.SessionStore.Key(sessionID),
-			"session_ttl":        int(h.SessionStore.SessionTTL().Seconds()),
-			"session_expires_at": sessionExpiresAt,
-			"auth_method":        "jwt",
+			"user_id":          authResult.UserID,
+			"login":            authResult.Login,
+			"full_name":        authResult.FullName,
+			"role":             authResult.Role,
+			"token_type":       "Bearer",
+			"token":            token,
+			"expires_at":       tokenExpiresAt,
+			"token_key":        h.SessionStore.Key(token),
+			"token_ttl":        int(tokenTTL.Seconds()),
+			"token_expires_at": tokenExpiresAt,
+			"auth_method":      "jwt",
 		},
 	})
 }
@@ -557,7 +562,7 @@ func (h *Handler) AuthAPI(ctx *gin.Context) {
 func (h *Handler) LogoutStubAPI(ctx *gin.Context) {
 	user, ok := h.currentUser(ctx)
 	if ok && h.SessionStore != nil {
-		_ = h.SessionStore.DeleteSession(ctx.Request.Context(), user.SessionID)
+		_ = h.SessionStore.DeleteToken(ctx.Request.Context(), user.Token)
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{

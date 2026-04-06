@@ -25,7 +25,7 @@ func StartServer() {
 	tokenManager := auth.NewManagerFromEnv()
 	sessionManager := session.NewManagerFromEnv()
 	if err := sessionManager.Ping(context.Background()); err != nil {
-		log.Fatalf("cannot init redis session manager: %v", err)
+		log.Fatalf("cannot init redis token store: %v", err)
 	}
 
 	h := handler.NewHandler(repo, tokenManager, sessionManager)

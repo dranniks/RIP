@@ -69,17 +69,16 @@ func buildOpenAPISpec() gin.H {
 				"AuthResponseData": gin.H{
 					"type": "object",
 					"properties": gin.H{
-						"user_id":     gin.H{"type": "integer"},
-						"login":       gin.H{"type": "string"},
-						"full_name":   gin.H{"type": "string"},
-						"role":        gin.H{"type": "string"},
-						"token_type":  gin.H{"type": "string", "example": "Bearer"},
-						"token":       gin.H{"type": "string"},
-						"expires_at":  gin.H{"type": "string", "format": "date-time"},
-						"session_id":  gin.H{"type": "string"},
-						"session_key": gin.H{"type": "string"},
-						"session_ttl": gin.H{"type": "integer"},
-						"session_expires_at": gin.H{
+						"user_id":    gin.H{"type": "integer"},
+						"login":      gin.H{"type": "string"},
+						"full_name":  gin.H{"type": "string"},
+						"role":       gin.H{"type": "string"},
+						"token_type": gin.H{"type": "string", "example": "Bearer"},
+						"token":      gin.H{"type": "string"},
+						"expires_at": gin.H{"type": "string", "format": "date-time"},
+						"token_key":  gin.H{"type": "string"},
+						"token_ttl":  gin.H{"type": "integer"},
+						"token_expires_at": gin.H{
 							"type":   "string",
 							"format": "date-time",
 						},
@@ -142,7 +141,7 @@ func buildOpenAPISpec() gin.H {
 				"post": gin.H{
 					"tags":        []string{"Auth"},
 					"summary":     "Logout stub",
-					"description": "Deletes Redis session for current JWT session id.",
+					"description": "Deletes current JWT token record from Redis.",
 					"security":    securityBearer,
 					"responses": gin.H{
 						"200": gin.H{"description": "OK"},
