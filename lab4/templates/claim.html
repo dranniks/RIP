@@ -1,0 +1,111 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Заявка {{ .Claim.ClaimCode }}</title>
+  <link rel="stylesheet" href="/styles/styles.css?v=20260309-3">
+</head>
+<body>
+  <header class="header">
+    <a class="home-link" href="/services" aria-label="Домой">
+      <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+    </a>
+    <p class="site-name">ArchaeoXRF Atlas: XRF анализ по частотам и интенсивности.</p>
+  </header>
+
+  <main class="page">
+    {{ if .Submitted }}
+    <p class="notice ok">Заявка отправлена: статус изменен на "сформирован".</p>
+    {{ end }}
+    {{ if .Claim.CompletionFormulaResult }}
+    <p class="notice ok">Результат расчета заявки: {{ .Claim.CompletionFormulaResult }}</p>
+    {{ end }}
+
+    <h1 class="page-title">artifact_claims {{ .Claim.ClaimCode }}</h1>
+    <p class="page-subtitle">Расчет процентного содержания элементов и идентификация артефакта с эталонным сплавом. Текущий статус: <strong>{{ .Claim.Status }}</strong>.</p>
+    <p class="small">Создана: {{ .Claim.CreatedAt }} | Сформирована: {{ if .Claim.FormedAt }}{{ .Claim.FormedAt }}{{ else }}-{{ end }} | Завершена: {{ if .Claim.CompletedAt }}{{ .Claim.CompletedAt }}{{ else }}-{{ end }}</p>
+
+    <section class="card claim-head">
+      <div class="id-text">ID заявки: <strong>{{ .Claim.ClaimCode }}</strong></div>
+      <form class="claim-form" method="get" action="/artifact_claims/{{ .Claim.ClaimCode }}">
+        <div class="freq-block">
+          <h3>Интенсивности I<sub>i</sub></h3>
+          <div class="freq-grid">
+            <label>Cu 8.04 keV<input type="text" name="icu" value="{{ .Input.ICu }}" placeholder="0.80"></label>
+            <label>Zn 8.64 keV<input type="text" name="izn" value="{{ .Input.IZn }}" placeholder="0.61"></label>
+            <label>Sn 3.44 keV<input type="text" name="isn" value="{{ .Input.ISn }}" placeholder="0.07"></label>
+            <label>Pb 10.55 keV<input type="text" name="ipb" value="{{ .Input.IPb }}" placeholder="0.04"></label>
+          </div>
+          <p class="formula-line">{{ .Formula }}</p>
+          <ul class="formula-list">
+            <li>I<sub>i</sub> - измеренная интенсивность пика.</li>
+            <li>K<sub>i</sub> - калибровочный коэффициент из эталонной услуги.</li>
+            <li>C<sub>i</sub> - оценка массовой доли элемента в процентах.</li>
+          </ul>
+        </div>
+
+        <div class="field">
+          <label for="mm">Комментарий к расчету</label>
+          <textarea id="mm" name="mm" rows="2" placeholder="Краткий комментарий">{{ .Input.MM }}</textarea>
+        </div>
+
+        <div class="action-row">
+          {{ if .CanDelete }}
+          <button class="chip" type="submit" name="action" value="submit">Сформировать заявку</button>
+          {{ end }}
+        </div>
+      </form>
+
+      {{ if .CanDelete }}
+      <form class="delete-form" method="post" action="/artifact_claims/{{ .Claim.ClaimCode }}/delete">
+        <button class="chip" type="submit">Удалить заявку</button>
+      </form>
+      {{ end }}
+    </section>
+
+    <section>
+      <div class="rows-header card">
+        <div>Изобр.</div>
+        <div>Услуга</div>
+        <div>Частоты и коэффициенты</div>
+        <div>Параметры m-m</div>
+        <div>Результат расчета состава</div>
+      </div>
+
+      {{ range .Rows }}
+      <article class="claim-row">
+        {{ if .Service.ImageURL }}
+        <img class="claim-thumb" src="{{ .Service.ImageURL }}" alt="{{ .Service.Name }}">
+        {{ else }}
+        <div class="claim-thumb service-thumb-empty">NULL</div>
+        {{ end }}
+        <div>
+          <div>{{ .Service.Slug }} / {{ .Service.Name }}</div>
+          <div class="small">Cu {{ .Service.CuReference }} | Zn {{ .Service.ZnReference }} | Sn {{ .Service.SnReference }} | Pb {{ .Service.PbReference }}</div>
+        </div>
+        <div class="small">
+          Cu Kα: {{ .Service.CuReference }}<br>
+          Zn Kα: {{ .Service.ZnReference }}<br>
+          Sn Lα: {{ .Service.SnReference }}<br>
+          Pb Lα: {{ .Service.PbReference }}
+        </div>
+        <div class="mm-box">
+          Количество: {{ .Quantity }}
+        </div>
+        <div class="mm-box">
+          {{ if or (eq $.Claim.Status "сформирован") (eq $.Claim.Status "завершен") (eq $.Claim.Status "отклонен") }}
+          {{ .CompositionResult }}
+          <br><span class="small">match_score = {{ .MatchScore }}</span>
+          {{ else }}
+          Будет рассчитано после формирования заявки
+          {{ end }}
+        </div>
+      </article>
+      {{ else }}
+      <article class="card">В заявке пока нет услуг.</article>
+      {{ end }}
+    </section>
+  </main>
+</body>
+</html>
