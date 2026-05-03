@@ -29,24 +29,25 @@ func (User) TableName() string {
 }
 
 type ReferenceAlloyService struct {
-	ID            uint      `gorm:"primaryKey"`
-	Slug          string    `gorm:"size:120;not null;uniqueIndex"`
-	Name          string    `gorm:"size:160;not null"`
-	Description   string    `gorm:"type:text;not null"`
-	Status        string    `gorm:"size:16;not null;index"`
-	ImageFileName *string   `gorm:"size:160"`
-	VideoFileName *string   `gorm:"size:160"`
-	ImageURL      *string   `gorm:"size:255"`
-	VideoURL      *string   `gorm:"size:255"`
-	Era           string    `gorm:"size:100;not null;default:''"`
-	Culture       string    `gorm:"size:120;not null;default:''"`
-	UnitPrice     float64   `gorm:"type:numeric(10,2);not null;default:0"`
-	CuReference   float64   `gorm:"type:numeric(6,3);not null;default:0"`
-	ZnReference   float64   `gorm:"type:numeric(6,3);not null;default:0"`
-	SnReference   float64   `gorm:"type:numeric(6,3);not null;default:0"`
-	PbReference   float64   `gorm:"type:numeric(6,3);not null;default:0"`
-	CreatedAt     time.Time `gorm:"not null;default:CURRENT_TIMESTAMP"`
-	UpdatedAt     time.Time `gorm:"not null;default:CURRENT_TIMESTAMP"`
+	ID                uint      `gorm:"primaryKey"`
+	Slug              string    `gorm:"size:120;not null;uniqueIndex"`
+	Name              string    `gorm:"size:160;not null"`
+	Description       string    `gorm:"type:text;not null"`
+	ClipDescriptionEN string    `gorm:"column:clip_description_en;size:255;not null;default:''"`
+	Status            string    `gorm:"size:16;not null;index"`
+	ImageFileName     *string   `gorm:"size:160"`
+	VideoFileName     *string   `gorm:"size:160"`
+	ImageURL          *string   `gorm:"size:255"`
+	VideoURL          *string   `gorm:"size:255"`
+	Era               string    `gorm:"size:100;not null;default:''"`
+	Culture           string    `gorm:"size:120;not null;default:''"`
+	UnitPrice         float64   `gorm:"type:numeric(10,2);not null;default:0"`
+	CuReference       float64   `gorm:"type:numeric(6,3);not null;default:0"`
+	ZnReference       float64   `gorm:"type:numeric(6,3);not null;default:0"`
+	SnReference       float64   `gorm:"type:numeric(6,3);not null;default:0"`
+	PbReference       float64   `gorm:"type:numeric(6,3);not null;default:0"`
+	CreatedAt         time.Time `gorm:"not null;default:CURRENT_TIMESTAMP"`
+	UpdatedAt         time.Time `gorm:"not null;default:CURRENT_TIMESTAMP"`
 }
 
 func (ReferenceAlloyService) TableName() string {

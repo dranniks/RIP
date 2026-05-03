@@ -41,19 +41,17 @@ type ClaimFilters struct {
 }
 
 type ClaimListItem struct {
-	ID                      uint
-	ClaimCode               string
-	Status                  string
-	CreatedAt               time.Time
-	FormedAt                *time.Time
-	CompletedAt             *time.Time
-	CreatorLogin            string
-	ModeratorLogin          *string
-	CompletionFormulaResult *float64
-	ResultValue             *float64
-	BestMatchLabel          *string
-	TotalCost               *float64
-	ResultItemsCount        int64
+	ID                  uint
+	ClaimCode           string
+	Status              string
+	CreatedAt           time.Time
+	ArtifactDescription *string
+	CuMeasured          *float64
+	ZnMeasured          *float64
+	SnMeasured          *float64
+	PbMeasured          *float64
+	ResultValue         *float64
+	ResultItemsCount    int64
 }
 
 type ClaimServiceItem struct {
@@ -241,15 +239,12 @@ func (r *Repository) ListClaims(filters ClaimFilters) ([]ClaimListItem, error) {
 	query := r.db.
 		Table("artifact_claims AS c").
 		Select(
-			"c.id, c.claim_code, c.status, c.created_at, c.formed_at, c.completed_at, "+
-				"creator.login AS creator_login, moderator.login AS moderator_login, "+
-				"c.completion_formula_result, "+
+			"c.id, c.claim_code, c.status, c.created_at, "+
+				"c.operator_comment AS artifact_description, "+
+				"c.cu_measured, c.zn_measured, c.sn_measured, c.pb_measured, "+
 				"COALESCE(c.completion_formula_result, (SELECT ROUND(MAX(m.result_value), 2) FROM claim_alloy_matches m WHERE m.claim_id = c.id)) AS result_value, "+
-				"c.best_match_label, c.total_cost, "+
 				"(SELECT COUNT(1) FROM claim_alloy_matches m WHERE m.claim_id = c.id AND m.result_value IS NOT NULL) AS result_items_count",
 		).
-		Joins("JOIN users AS creator ON creator.id = c.creator_id").
-		Joins("LEFT JOIN users AS moderator ON moderator.id = c.moderator_id").
 		Where("c.status NOT IN ?", []string{model.ClaimStatusDeleted, model.ClaimStatusDraft}).
 		Order("c.id DESC")
 

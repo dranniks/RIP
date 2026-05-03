@@ -42,6 +42,7 @@ func StartServer() {
 		{
 			public.GET("/services", h.GetServicesAPI)
 			public.GET("/services/:id", h.GetServiceAPI)
+			public.GET("/claims/cart-icon", h.GetCartIconAPI)
 			public.POST("/users/register", h.RegisterUserAPI)
 			public.POST("/users/auth", h.AuthAPI)
 		}
@@ -55,7 +56,6 @@ func StartServer() {
 			authenticated.PUT("/claim-items/:service_id", h.UpdateDraftMatchAPI)
 			authenticated.DELETE("/claim-items/:service_id", h.DeleteDraftMatchAPI)
 
-			authenticated.GET("/claims/cart-icon", h.GetCartIconAPI)
 			authenticated.GET("/claims", h.GetClaimsAPI)
 			authenticated.GET("/claims/:id", h.GetClaimAPI)
 			authenticated.PUT("/claims/:id", h.UpdateDraftClaimAPI)

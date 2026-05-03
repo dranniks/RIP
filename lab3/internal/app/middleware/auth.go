@@ -50,25 +50,16 @@ func RequireAuth(tokens *auth.Manager, tokenStore *session.Manager) gin.HandlerF
 		}
 
 		if tokenStore != nil {
-			tokenRecord, err := tokenStore.GetToken(ctx.Request.Context(), rawToken)
+			isBlacklisted, err := tokenStore.IsTokenBlacklisted(ctx.Request.Context(), rawToken)
 			if err != nil {
 				ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 					"message": "token check failed",
 				})
 				return
 			}
-			if tokenRecord == nil {
+			if isBlacklisted {
 				ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-					"message": "token is not found or expired",
-				})
-				return
-			}
-
-			if tokenRecord.UserID != claims.UserID ||
-				!strings.EqualFold(strings.TrimSpace(tokenRecord.Login), strings.TrimSpace(claims.Login)) ||
-				!strings.EqualFold(strings.TrimSpace(tokenRecord.Role), strings.TrimSpace(claims.Role)) {
-				ctx.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-					"message": "token record does not match token payload",
+					"message": "token is blacklisted",
 				})
 				return
 			}

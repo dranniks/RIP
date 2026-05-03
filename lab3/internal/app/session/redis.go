@@ -3,9 +3,6 @@ package session
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -20,7 +17,7 @@ const (
 	defaultRedisPort       = "6379"
 	defaultRedisPass       = "password"
 	defaultRedisDB         = 0
-	defaultTokenPrefix     = "lab4:tokens:"
+	defaultTokenPrefix     = "xrf.jwt.blacklist."
 	defaultTokenTTLMin     = 120
 	defaultRedisTimeoutSec = 3
 )
@@ -32,14 +29,6 @@ type Manager struct {
 	keyPrefix   string
 	tokenTTL    time.Duration
 	dialTimeout time.Duration
-}
-
-type Record struct {
-	UserID    uint   `json:"user_id"`
-	Login     string `json:"login"`
-	Role      string `json:"role"`
-	CreatedAt int64  `json:"created_at"`
-	ExpiresAt int64  `json:"expires_at"`
 }
 
 func NewManagerFromEnv() *Manager {
@@ -75,7 +64,10 @@ func NewManagerFromEnv() *Manager {
 		}
 	}
 
-	prefix := strings.TrimSpace(os.Getenv("TOKEN_KEY_PREFIX"))
+	prefix := strings.TrimSpace(os.Getenv("BLACKLIST_KEY_PREFIX"))
+	if prefix == "" {
+		prefix = strings.TrimSpace(os.Getenv("TOKEN_KEY_PREFIX"))
+	}
 	if prefix == "" {
 		prefix = strings.TrimSpace(os.Getenv("SESSION_KEY_PREFIX"))
 	}
@@ -97,7 +89,7 @@ func (m *Manager) TokenTTL() time.Duration {
 	return m.tokenTTL
 }
 
-// SessionTTL оставлен как alias для обратной совместимости.
+// SessionTTL is kept as alias for backwards compatibility.
 func (m *Manager) SessionTTL() time.Duration {
 	return m.TokenTTL()
 }
@@ -120,14 +112,10 @@ func (m *Manager) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) SaveToken(ctx context.Context, rawToken string, record Record, ttl time.Duration) error {
+func (m *Manager) BlacklistToken(ctx context.Context, rawToken string, ttl time.Duration) error {
 	key, err := m.tokenKey(rawToken)
 	if err != nil {
 		return err
-	}
-
-	if record.UserID == 0 || strings.TrimSpace(record.Login) == "" || strings.TrimSpace(record.Role) == "" {
-		return fmt.Errorf("token record is invalid")
 	}
 
 	if ttl <= 0 {
@@ -137,17 +125,12 @@ func (m *Manager) SaveToken(ctx context.Context, rawToken string, record Record,
 		return fmt.Errorf("invalid token ttl")
 	}
 
-	payload, err := json.Marshal(record)
-	if err != nil {
-		return fmt.Errorf("marshal token record: %w", err)
-	}
-
 	seconds := int(ttl.Seconds())
 	if seconds <= 0 {
 		seconds = 1
 	}
 
-	resp, err := m.do(ctx, "SETEX", key, strconv.Itoa(seconds), string(payload))
+	resp, err := m.do(ctx, "SETEX", key, strconv.Itoa(seconds), strings.TrimSpace(rawToken))
 	if err != nil {
 		return err
 	}
@@ -159,33 +142,20 @@ func (m *Manager) SaveToken(ctx context.Context, rawToken string, record Record,
 	return nil
 }
 
-func (m *Manager) GetToken(ctx context.Context, rawToken string) (*Record, error) {
+func (m *Manager) IsTokenBlacklisted(ctx context.Context, rawToken string) (bool, error) {
 	key, err := m.tokenKey(rawToken)
 	if err != nil {
-		return nil, nil
+		return false, nil
 	}
 
 	resp, err := m.do(ctx, "GET", key)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-	if resp == nil {
-		return nil, nil
-	}
-
-	rawPayload, ok := resp.(string)
-	if !ok {
-		return nil, fmt.Errorf("unexpected redis GET response: %T", resp)
-	}
-
-	record := Record{}
-	if err := json.Unmarshal([]byte(rawPayload), &record); err != nil {
-		return nil, fmt.Errorf("decode token payload: %w", err)
-	}
-	return &record, nil
+	return resp != nil, nil
 }
 
-func (m *Manager) DeleteToken(ctx context.Context, rawToken string) error {
+func (m *Manager) UnblacklistToken(ctx context.Context, rawToken string) error {
 	key, err := m.tokenKey(rawToken)
 	if err != nil {
 		return nil
@@ -200,8 +170,7 @@ func (m *Manager) tokenKey(rawToken string) (string, error) {
 	if token == "" {
 		return "", fmt.Errorf("token is required")
 	}
-	sum := sha256.Sum256([]byte(token))
-	return m.keyPrefix + hex.EncodeToString(sum[:]), nil
+	return m.keyPrefix + token, nil
 }
 
 func (m *Manager) do(ctx context.Context, args ...string) (any, error) {

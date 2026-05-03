@@ -1,0 +1,9 @@
+﻿<svg width="640" height="360" viewBox="0 0 640 360" xmlns="http://www.w3.org/2000/svg">
+  <rect width="640" height="360" fill="#10131a" />
+  <rect x="50" y="55" width="540" height="250" fill="#283141" stroke="#9ea8b8" stroke-width="4" />
+  <circle cx="200" cy="180" r="74" fill="#7f8997" />
+  <circle cx="420" cy="180" r="88" fill="#a8b3c6" opacity="0.8" />
+  <text x="320" y="332" fill="#d2d8e4" font-family="Trebuchet MS, Segoe UI, sans-serif" font-size="24" text-anchor="middle">
+    Silver sample
+  </text>
+</svg>

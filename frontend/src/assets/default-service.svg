@@ -1,0 +1,13 @@
+﻿<svg width="640" height="360" viewBox="0 0 640 360" xmlns="http://www.w3.org/2000/svg">
+  <rect width="640" height="360" fill="#0f131a" />
+  <text
+    x="320"
+    y="188"
+    fill="#b5bdca"
+    font-family="Trebuchet MS, Segoe UI, sans-serif"
+    font-size="34"
+    text-anchor="middle"
+  >
+    Изображение отсутствует
+  </text>
+</svg>

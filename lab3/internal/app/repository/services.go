@@ -17,19 +17,20 @@ type ServiceFilters struct {
 }
 
 type ServiceCreateInput struct {
-	Name          string
-	Description   string
-	Era           string
-	Culture       string
-	UnitPrice     float64
-	CuReference   float64
-	ZnReference   float64
-	SnReference   float64
-	PbReference   float64
-	ImageFileName *string
-	VideoFileName *string
-	ImageURL      *string
-	VideoURL      *string
+	Name              string
+	Description       string
+	ClipDescriptionEN string
+	Era               string
+	Culture           string
+	UnitPrice         float64
+	CuReference       float64
+	ZnReference       float64
+	SnReference       float64
+	PbReference       float64
+	ImageFileName     *string
+	VideoFileName     *string
+	ImageURL          *string
+	VideoURL          *string
 }
 
 func (r *Repository) ListServices(filters ServiceFilters) ([]model.ReferenceAlloyService, error) {
@@ -85,21 +86,22 @@ func (r *Repository) CreateService(input ServiceCreateInput) (*model.ReferenceAl
 	}
 
 	service := model.ReferenceAlloyService{
-		Slug:          slug,
-		Name:          strings.TrimSpace(input.Name),
-		Description:   strings.TrimSpace(input.Description),
-		Status:        model.ServiceStatusActive,
-		ImageFileName: input.ImageFileName,
-		VideoFileName: input.VideoFileName,
-		ImageURL:      input.ImageURL,
-		VideoURL:      input.VideoURL,
-		Era:           strings.TrimSpace(input.Era),
-		Culture:       strings.TrimSpace(input.Culture),
-		UnitPrice:     input.UnitPrice,
-		CuReference:   input.CuReference,
-		ZnReference:   input.ZnReference,
-		SnReference:   input.SnReference,
-		PbReference:   input.PbReference,
+		Slug:              slug,
+		Name:              strings.TrimSpace(input.Name),
+		Description:       strings.TrimSpace(input.Description),
+		ClipDescriptionEN: resolveClipDescriptionEN(slug, input.ClipDescriptionEN),
+		Status:            model.ServiceStatusActive,
+		ImageFileName:     input.ImageFileName,
+		VideoFileName:     input.VideoFileName,
+		ImageURL:          input.ImageURL,
+		VideoURL:          input.VideoURL,
+		Era:               strings.TrimSpace(input.Era),
+		Culture:           strings.TrimSpace(input.Culture),
+		UnitPrice:         input.UnitPrice,
+		CuReference:       input.CuReference,
+		ZnReference:       input.ZnReference,
+		SnReference:       input.SnReference,
+		PbReference:       input.PbReference,
 	}
 
 	if err := r.db.Create(&service).Error; err != nil {
@@ -107,6 +109,45 @@ func (r *Repository) CreateService(input ServiceCreateInput) (*model.ReferenceAl
 	}
 
 	return &service, nil
+}
+
+func resolveClipDescriptionEN(slug string, raw string) string {
+	normalized := normalizeClipDescriptionEN(raw)
+	if normalized != "" {
+		return normalized
+	}
+	return normalizeClipDescriptionEN(defaultClipDescriptionBySlug(slug))
+}
+
+func normalizeClipDescriptionEN(raw string) string {
+	normalized := strings.TrimSpace(strings.Join(strings.Fields(raw), " "))
+	if normalized == "" {
+		return ""
+	}
+
+	if len(normalized) < 50 {
+		normalized += " Prepared for archaeological alloy search in CLIP."
+	}
+	if len(normalized) > 100 {
+		normalized = strings.TrimSpace(normalized[:100])
+	}
+	return normalized
+}
+
+func defaultClipDescriptionBySlug(slug string) string {
+	cleanSlug := strings.ToLower(strings.TrimSpace(slug))
+	switch {
+	case strings.Contains(cleanSlug, "bronze"):
+		return "Dark brown bronze ingot with oxidized rough texture and warm copper highlights under light."
+	case strings.Contains(cleanSlug, "brass"):
+		return "Warm yellow brass ingot with bright golden edges and medium metallic reflectance on surface."
+	case strings.Contains(cleanSlug, "iron"):
+		return "Dark gray iron ingot with matte grainy texture, cold tone, and weak silver highlights."
+	case strings.Contains(cleanSlug, "silver"):
+		return "Pale silver ingot with smooth texture, strong reflectance, and bright white specular highlights."
+	default:
+		return "Archaeological metal reference alloy sample for XRF spectral comparison and CLIP similarity search."
+	}
 }
 
 func (r *Repository) uniqueServiceSlug(base string) (string, error) {

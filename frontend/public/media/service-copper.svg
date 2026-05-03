@@ -1,0 +1,9 @@
+﻿<svg width="640" height="360" viewBox="0 0 640 360" xmlns="http://www.w3.org/2000/svg">
+  <rect width="640" height="360" fill="#160f0b" />
+  <rect x="40" y="52" width="560" height="256" fill="#3e2419" stroke="#ad6f4f" stroke-width="4" />
+  <path d="M90 240L240 120L380 226L550 132" stroke="#d48e6c" stroke-width="10" fill="none" stroke-linecap="round" />
+  <circle cx="250" cy="128" r="22" fill="#f0b190" />
+  <text x="320" y="332" fill="#e5b59f" font-family="Trebuchet MS, Segoe UI, sans-serif" font-size="24" text-anchor="middle">
+    Copper sample
+  </text>
+</svg>

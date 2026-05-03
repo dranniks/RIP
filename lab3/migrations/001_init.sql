@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS reference_alloy_services (
     slug VARCHAR(120) NOT NULL UNIQUE,
     name VARCHAR(160) NOT NULL,
     description TEXT NOT NULL,
+    clip_description_en VARCHAR(255) NOT NULL DEFAULT '',
     status VARCHAR(16) NOT NULL,
     image_file_name VARCHAR(160) NULL,
     video_file_name VARCHAR(160) NULL,

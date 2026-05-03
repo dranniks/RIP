@@ -76,7 +76,6 @@ func buildOpenAPISpec() gin.H {
 						"token_type": gin.H{"type": "string", "example": "Bearer"},
 						"token":      gin.H{"type": "string"},
 						"expires_at": gin.H{"type": "string", "format": "date-time"},
-						"token_key":  gin.H{"type": "string"},
 						"token_ttl":  gin.H{"type": "integer"},
 						"token_expires_at": gin.H{
 							"type":   "string",
@@ -140,8 +139,8 @@ func buildOpenAPISpec() gin.H {
 			"/api/users/logout": gin.H{
 				"post": gin.H{
 					"tags":        []string{"Auth"},
-					"summary":     "Logout stub",
-					"description": "Deletes current JWT token record from Redis.",
+					"summary":     "Logout",
+					"description": "Adds current JWT to Redis blacklist until token expiration.",
 					"security":    securityBearer,
 					"responses": gin.H{
 						"200": gin.H{"description": "OK"},
@@ -178,17 +177,18 @@ func buildOpenAPISpec() gin.H {
 								"schema": gin.H{
 									"type": "object",
 									"properties": gin.H{
-										"name":         gin.H{"type": "string"},
-										"description":  gin.H{"type": "string"},
-										"era":          gin.H{"type": "string"},
-										"culture":      gin.H{"type": "string"},
-										"unit_price":   gin.H{"type": "number"},
-										"cu_reference": gin.H{"type": "number"},
-										"zn_reference": gin.H{"type": "number"},
-										"sn_reference": gin.H{"type": "number"},
-										"pb_reference": gin.H{"type": "number"},
-										"image":        gin.H{"type": "string", "format": "binary"},
-										"video":        gin.H{"type": "string", "format": "binary"},
+										"name":                gin.H{"type": "string"},
+										"description":         gin.H{"type": "string"},
+										"clip_description_en": gin.H{"type": "string", "description": "Short English CLIP text (50-100 chars)"},
+										"era":                 gin.H{"type": "string"},
+										"culture":             gin.H{"type": "string"},
+										"unit_price":          gin.H{"type": "number"},
+										"cu_reference":        gin.H{"type": "number"},
+										"zn_reference":        gin.H{"type": "number"},
+										"sn_reference":        gin.H{"type": "number"},
+										"pb_reference":        gin.H{"type": "number"},
+										"image":               gin.H{"type": "string", "format": "binary"},
+										"video":               gin.H{"type": "string", "format": "binary"},
 									},
 								},
 							},
@@ -250,8 +250,7 @@ func buildOpenAPISpec() gin.H {
 				"get": gin.H{
 					"tags":        []string{"Claims"},
 					"summary":     "Get cart icon",
-					"description": "Returns creator draft claim id and service count.",
-					"security":    securityBearer,
+					"description": "Public endpoint. Returns 200 for guest and creator draft service count for authorized user.",
 					"responses":   gin.H{"200": gin.H{"description": "OK"}},
 				},
 			},

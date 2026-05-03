@@ -8,24 +8,25 @@ import (
 )
 
 type serviceSerializer struct {
-	ID            uint      `json:"id"`
-	Slug          string    `json:"slug"`
-	Name          string    `json:"name"`
-	Description   string    `json:"description"`
-	Status        string    `json:"status"`
-	ImageFileName *string   `json:"image_file_name"`
-	VideoFileName *string   `json:"video_file_name"`
-	ImageURL      *string   `json:"image_url"`
-	VideoURL      *string   `json:"video_url"`
-	Era           string    `json:"era"`
-	Culture       string    `json:"culture"`
-	UnitPrice     float64   `json:"unit_price"`
-	CuReference   float64   `json:"cu_reference"`
-	ZnReference   float64   `json:"zn_reference"`
-	SnReference   float64   `json:"sn_reference"`
-	PbReference   float64   `json:"pb_reference"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID                uint      `json:"id"`
+	Slug              string    `json:"slug"`
+	Name              string    `json:"name"`
+	Description       string    `json:"description"`
+	ClipDescriptionEN string    `json:"clip_description_en"`
+	Status            string    `json:"status"`
+	ImageFileName     *string   `json:"image_file_name"`
+	VideoFileName     *string   `json:"video_file_name"`
+	ImageURL          *string   `json:"image_url"`
+	VideoURL          *string   `json:"video_url"`
+	Era               string    `json:"era"`
+	Culture           string    `json:"culture"`
+	UnitPrice         float64   `json:"unit_price"`
+	CuReference       float64   `json:"cu_reference"`
+	ZnReference       float64   `json:"zn_reference"`
+	SnReference       float64   `json:"sn_reference"`
+	PbReference       float64   `json:"pb_reference"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 type cartSerializer struct {
@@ -67,19 +68,17 @@ type claimSerializer struct {
 }
 
 type claimListSerializer struct {
-	ID                      uint       `json:"id"`
-	ClaimCode               string     `json:"claim_code"`
-	Status                  string     `json:"status"`
-	CreatedAt               time.Time  `json:"created_at"`
-	FormedAt                *time.Time `json:"formed_at"`
-	CompletedAt             *time.Time `json:"completed_at"`
-	CreatorLogin            string     `json:"creator_login"`
-	ModeratorLogin          *string    `json:"moderator_login"`
-	CompletionFormulaResult *float64   `json:"completion_formula_result"`
-	ResultValue             *float64   `json:"result_value"`
-	BestMatchLabel          *string    `json:"best_match_label"`
-	TotalCost               *float64   `json:"total_cost"`
-	ResultItemsCount        int64      `json:"result_items_count"`
+	ID                  uint      `json:"id"`
+	ClaimCode           string    `json:"claim_code"`
+	Status              string    `json:"status"`
+	CreatedAt           time.Time `json:"created_at"`
+	ArtifactDescription *string   `json:"artifact_description"`
+	CuMeasured          *float64  `json:"cu_measured"`
+	ZnMeasured          *float64  `json:"zn_measured"`
+	SnMeasured          *float64  `json:"sn_measured"`
+	PbMeasured          *float64  `json:"pb_measured"`
+	Result              *float64  `json:"result"`
+	ResultItemsCount    int64     `json:"result_items_count"`
 }
 
 type userSerializer struct {
@@ -92,24 +91,25 @@ type userSerializer struct {
 
 func toServiceSerializer(service model.ReferenceAlloyService) serviceSerializer {
 	return serviceSerializer{
-		ID:            service.ID,
-		Slug:          service.Slug,
-		Name:          service.Name,
-		Description:   service.Description,
-		Status:        service.Status,
-		ImageFileName: service.ImageFileName,
-		VideoFileName: service.VideoFileName,
-		ImageURL:      service.ImageURL,
-		VideoURL:      service.VideoURL,
-		Era:           service.Era,
-		Culture:       service.Culture,
-		UnitPrice:     service.UnitPrice,
-		CuReference:   service.CuReference,
-		ZnReference:   service.ZnReference,
-		SnReference:   service.SnReference,
-		PbReference:   service.PbReference,
-		CreatedAt:     service.CreatedAt,
-		UpdatedAt:     service.UpdatedAt,
+		ID:                service.ID,
+		Slug:              service.Slug,
+		Name:              service.Name,
+		Description:       service.Description,
+		ClipDescriptionEN: service.ClipDescriptionEN,
+		Status:            service.Status,
+		ImageFileName:     service.ImageFileName,
+		VideoFileName:     service.VideoFileName,
+		ImageURL:          service.ImageURL,
+		VideoURL:          service.VideoURL,
+		Era:               service.Era,
+		Culture:           service.Culture,
+		UnitPrice:         service.UnitPrice,
+		CuReference:       service.CuReference,
+		ZnReference:       service.ZnReference,
+		SnReference:       service.SnReference,
+		PbReference:       service.PbReference,
+		CreatedAt:         service.CreatedAt,
+		UpdatedAt:         service.UpdatedAt,
 	}
 }
 
@@ -167,19 +167,17 @@ func toClaimSerializer(details *repository.ClaimDetails) claimSerializer {
 
 func toClaimListSerializer(row repository.ClaimListItem) claimListSerializer {
 	return claimListSerializer{
-		ID:                      row.ID,
-		ClaimCode:               row.ClaimCode,
-		Status:                  row.Status,
-		CreatedAt:               row.CreatedAt,
-		FormedAt:                row.FormedAt,
-		CompletedAt:             row.CompletedAt,
-		CreatorLogin:            row.CreatorLogin,
-		ModeratorLogin:          row.ModeratorLogin,
-		CompletionFormulaResult: row.CompletionFormulaResult,
-		ResultValue:             row.ResultValue,
-		BestMatchLabel:          row.BestMatchLabel,
-		TotalCost:               row.TotalCost,
-		ResultItemsCount:        row.ResultItemsCount,
+		ID:                  row.ID,
+		ClaimCode:           row.ClaimCode,
+		Status:              row.Status,
+		CreatedAt:           row.CreatedAt,
+		ArtifactDescription: row.ArtifactDescription,
+		CuMeasured:          row.CuMeasured,
+		ZnMeasured:          row.ZnMeasured,
+		SnMeasured:          row.SnMeasured,
+		PbMeasured:          row.PbMeasured,
+		Result:              row.ResultValue,
+		ResultItemsCount:    row.ResultItemsCount,
 	}
 }
 

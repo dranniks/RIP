@@ -132,19 +132,20 @@ func (h *Handler) CreateServiceAPI(ctx *gin.Context) {
 	}
 
 	service, err := h.Repository.CreateService(repository.ServiceCreateInput{
-		Name:          strings.TrimSpace(ctx.PostForm("name")),
-		Description:   strings.TrimSpace(ctx.PostForm("description")),
-		Era:           strings.TrimSpace(ctx.PostForm("era")),
-		Culture:       strings.TrimSpace(ctx.PostForm("culture")),
-		UnitPrice:     unitPrice,
-		CuReference:   cuRef,
-		ZnReference:   znRef,
-		SnReference:   snRef,
-		PbReference:   pbRef,
-		ImageFileName: imageFileName,
-		VideoFileName: videoFileName,
-		ImageURL:      imageURL,
-		VideoURL:      videoURL,
+		Name:              strings.TrimSpace(ctx.PostForm("name")),
+		Description:       strings.TrimSpace(ctx.PostForm("description")),
+		ClipDescriptionEN: strings.TrimSpace(ctx.PostForm("clip_description_en")),
+		Era:               strings.TrimSpace(ctx.PostForm("era")),
+		Culture:           strings.TrimSpace(ctx.PostForm("culture")),
+		UnitPrice:         unitPrice,
+		CuReference:       cuRef,
+		ZnReference:       znRef,
+		SnReference:       snRef,
+		PbReference:       pbRef,
+		ImageFileName:     imageFileName,
+		VideoFileName:     videoFileName,
+		ImageURL:          imageURL,
+		VideoURL:          videoURL,
 	})
 	if err != nil {
 		h.handleRepoError(ctx, err)
@@ -258,13 +259,14 @@ func (h *Handler) DeleteDraftMatchAPI(ctx *gin.Context) {
 }
 
 func (h *Handler) GetCartIconAPI(ctx *gin.Context) {
-	user, ok := h.currentUser(ctx)
-	if !ok {
-		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "authorization required"})
-		return
+	creatorID := uint(0)
+	if user, ok := h.currentUser(ctx); ok {
+		creatorID = user.ID
+	} else if tokenUserID, ok := h.resolveOptionalTokenUserID(ctx); ok {
+		creatorID = tokenUserID
 	}
 
-	card, err := h.Repository.GetCartIcon(user.ID)
+	card, err := h.Repository.GetCartIcon(creatorID)
 	if err != nil {
 		h.handleRepoError(ctx, err)
 		return
@@ -495,10 +497,6 @@ func (h *Handler) AuthAPI(ctx *gin.Context) {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"message": "jwt manager is not configured"})
 		return
 	}
-	if h.SessionStore == nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"message": "token store is not configured"})
-		return
-	}
 
 	body := struct {
 		Login    string `json:"login"`
@@ -530,18 +528,6 @@ func (h *Handler) AuthAPI(ctx *gin.Context) {
 		tokenTTL = h.TokenManager.TTL()
 	}
 
-	err = h.SessionStore.SaveToken(ctx.Request.Context(), token, session.Record{
-		UserID:    authResult.UserID,
-		Login:     authResult.Login,
-		Role:      authResult.Role,
-		CreatedAt: time.Now().UTC().Unix(),
-		ExpiresAt: claims.ExpiresAt,
-	}, tokenTTL)
-	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
-		return
-	}
-
 	ctx.JSON(http.StatusOK, gin.H{
 		"data": gin.H{
 			"user_id":          authResult.UserID,
@@ -551,7 +537,6 @@ func (h *Handler) AuthAPI(ctx *gin.Context) {
 			"token_type":       "Bearer",
 			"token":            token,
 			"expires_at":       tokenExpiresAt,
-			"token_key":        h.SessionStore.Key(token),
 			"token_ttl":        int(tokenTTL.Seconds()),
 			"token_expires_at": tokenExpiresAt,
 			"auth_method":      "jwt",
@@ -561,8 +546,37 @@ func (h *Handler) AuthAPI(ctx *gin.Context) {
 
 func (h *Handler) LogoutStubAPI(ctx *gin.Context) {
 	user, ok := h.currentUser(ctx)
-	if ok && h.SessionStore != nil {
-		_ = h.SessionStore.DeleteToken(ctx.Request.Context(), user.Token)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"message": "authorization required"})
+		return
+	}
+	if h.TokenManager == nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"message": "jwt manager is not configured"})
+		return
+	}
+	if h.SessionStore == nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"message": "redis blacklist store is not configured"})
+		return
+	}
+
+	claims, err := h.TokenManager.ParseToken(user.Token)
+	if err != nil && !errors.Is(err, auth.ErrExpiredToken) {
+		ctx.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		return
+	}
+
+	ttl := h.SessionStore.TokenTTL()
+	if claims != nil {
+		expiresAt := time.Unix(claims.ExpiresAt, 0).UTC()
+		ttl = time.Until(expiresAt)
+	}
+	if ttl <= 0 {
+		ttl = time.Second
+	}
+
+	if err := h.SessionStore.BlacklistToken(ctx.Request.Context(), user.Token, ttl); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"message": err.Error()})
+		return
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
@@ -589,6 +603,39 @@ func (h *Handler) currentUser(ctx *gin.Context) (middleware.AuthUser, bool) {
 		return middleware.AuthUser{}, false
 	}
 	return user, true
+}
+
+func (h *Handler) resolveOptionalTokenUserID(ctx *gin.Context) (uint, bool) {
+	if h.TokenManager == nil {
+		return 0, false
+	}
+
+	rawAuthHeader := strings.TrimSpace(ctx.GetHeader("Authorization"))
+	if rawAuthHeader == "" {
+		return 0, false
+	}
+
+	rawToken, err := auth.ExtractBearerToken(rawAuthHeader)
+	if err != nil {
+		return 0, false
+	}
+
+	claims, err := h.TokenManager.ParseToken(rawToken)
+	if err != nil {
+		return 0, false
+	}
+	if claims == nil || claims.UserID == 0 {
+		return 0, false
+	}
+
+	if h.SessionStore != nil {
+		isBlacklisted, err := h.SessionStore.IsTokenBlacklisted(ctx.Request.Context(), rawToken)
+		if err != nil || isBlacklisted {
+			return 0, false
+		}
+	}
+
+	return claims.UserID, true
 }
 
 func parseUintParam(raw string) (uint, error) {
